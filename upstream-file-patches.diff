@@ -1,0 +1,668 @@
+diff --git a/app/layout.tsx b/app/layout.tsx
+index e9e3fbb..4a82ecf 100644
+--- a/app/layout.tsx
++++ b/app/layout.tsx
+@@ -8,6 +8,8 @@ import "./settings.css";
+ // Fork-local restyle layer — must come after the upstream stylesheets so its
+ // equal-specificity rules win the cascade. See app/native-theme.css.
+ import "./native-theme.css";
++// CDS overlay styles for the follow-up suggestion chips (SuggestionChips).
++import "@/components/cds-overlay.css";
+ import { PRODUCT_NAME } from "@/lib/branding";
+ 
+ const notoSansMono = Noto_Sans_Mono({
+diff --git a/components/ChatInput.tsx b/components/ChatInput.tsx
+index 7bb6624..b33368b 100644
+--- a/components/ChatInput.tsx
++++ b/components/ChatInput.tsx
+@@ -30,6 +30,8 @@ import { resolveSessionReferences } from "@/lib/session-reference";
+ import type { RoutedModelInfo, SessionInfo } from "@/lib/types";
+ import { getMarkdownListContinuation } from "@/lib/markdown-list-continuation";
+ import { isBareMcpCommand, isBuiltinMcpCommand } from "@/lib/mcp-command";
++import { applyGhostCompletion } from "@/lib/ghost-text";
++import { useGhostText } from "./GhostTextOverlay";
+ import { FolderIcon, getFileIcon } from "./FileIcons";
+ import { ImagePreview } from "./ImagePreview";
+ import { useIsMobile } from "@/hooks/useIsMobile";
+@@ -887,6 +889,14 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
+   const historyMenuRef = useRef<HTMLDivElement>(null);
+   const isComposingRef = useRef(false);
+   const lastCompositionEndAtRef = useRef(0);
++  // Ghost text (phase 2 overlay): inline history-prefix completion. Engine
++  // and rendering live in ./GhostTextOverlay + lib/ghost-text; ChatInput only
++  // wires change events, the Tab accept, and the suppress conditions.
++  const ghost = useGhostText(
++    () => textareaRef.current,
++    inputHistory,
++    Boolean(isStreaming) || isComposingRef.current || slashMenuOpen || atMenuOpen || hashMenuOpen || historyMenuOpen,
++  );
+   const slashCommandsRequestedRef = useRef(false);
+   const slashMenuRef = useRef<HTMLDivElement>(null);
+   const slashItemRefs = useRef<Array<HTMLButtonElement | null>>([]);
+@@ -1163,10 +1173,11 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
+     if (draftKey) clearDraft(draftKey);
+     if (draftKeyRef.current && draftKeyRef.current !== draftKey) clearDraft(draftKeyRef.current);
+     clearImages();
++    ghost.controllerRef.current?.hide();
+     if (textareaRef.current) {
+       textareaRef.current.style.height = "auto";
+     }
+-  }, [clearImages, draftKey]);
++  }, [clearImages, draftKey, ghost.controllerRef]);
+ 
+   useEffect(() => {
+     if (!draftKey || draftKeyRef.current !== draftKey) return;
+@@ -1841,6 +1852,30 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
+         return;
+       }
+ 
++      // Ghost text (phase 2): Tab accepts the inline completion. Placed after
++      // every menu (slash/@/#/history own Tab first) and skipped during IME
++      // composition; Escape above already hides via suppression elsewhere.
++      if (e.key === "Tab" && !isComposing && !isStreaming) {
++        const current = ghost.controllerRef.current?.current();
++        if (current?.completion) {
++          e.preventDefault();
++          const ta = textareaRef.current;
++          const caret = ta?.selectionStart ?? value.length;
++          const next = applyGhostCompletion(value, caret, current.completion);
++          valueRef.current = next.value;
++          setValue(next.value);
++          const acceptGhostCaret = next.caret;
++          requestAnimationFrame(() => {
++            const el = textareaRef.current;
++            if (!el) return;
++            el.selectionStart = acceptGhostCaret;
++            el.selectionEnd = acceptGhostCaret;
++          });
++          ghost.controllerRef.current?.hide();
++          return;
++        }
++      }
++
+       if (sendShortcut) {
+         e.preventDefault();
+         if (isStreaming && (onSteer || onFollowUp)) {
+@@ -1850,7 +1885,7 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
+         }
+       }
+     },
+-    [isMobile, enterSendMode, isStreaming, onSteer, onFollowUp, onAbort, slashMenuOpen, slashQuery, displayedSlashCommands, slashActiveIndex, applySlashCommand, sendQueued, handleSend, getNextSlashIndex, hashMenuOpen, hashQuery, hashMatches, hashActiveIndex, applyHashCompletion, atMenuOpen, atQuery, atMatches, atActiveIndex, applyAtCompletion, historyMenuOpen, inputHistory, historyActiveIndex, applyHistoryInput, value]
++    [isMobile, enterSendMode, isStreaming, onSteer, onFollowUp, onAbort, slashMenuOpen, slashQuery, displayedSlashCommands, slashActiveIndex, applySlashCommand, sendQueued, handleSend, getNextSlashIndex, hashMenuOpen, hashQuery, hashMatches, hashActiveIndex, applyHashCompletion, atMenuOpen, atQuery, atMatches, atActiveIndex, applyAtCompletion, historyMenuOpen, inputHistory, historyActiveIndex, applyHistoryInput, value, ghost.controllerRef]
+   );
+ 
+   const handleInput = useCallback(() => {
+@@ -2740,6 +2775,7 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
+             ref={textareaRef}
+             className="chat-input-textarea"
+             aria-label={compact ? t("chat.quoteQuestion") : undefined}
++            data-ghost-text-anchor="true"
+             value={value}
+             onChange={(e) => {
+               valueRef.current = e.target.value;
+@@ -2747,15 +2783,18 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
+               setHistoryMenuOpen(false);
+               updateAtQuery(e.target.value, e.target.selectionStart);
+               updateHashQuery(e.target.value, e.target.selectionStart);
++              ghost.controllerRef.current?.update();
+             }}
+             onSelect={(e) => {
+               const el = e.currentTarget;
+               updateAtQuery(el.value, el.selectionStart);
+               updateHashQuery(el.value, el.selectionStart);
++              ghost.controllerRef.current?.update();
+             }}
+             onKeyDown={handleKeyDown}
+             onCompositionStart={() => {
+               isComposingRef.current = true;
++              ghost.controllerRef.current?.hide();
+             }}
+             onCompositionEnd={(e) => {
+               isComposingRef.current = false;
+@@ -2763,6 +2802,7 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
+               const el = e.currentTarget;
+               updateAtQuery(el.value, el.selectionStart);
+               updateHashQuery(el.value, el.selectionStart);
++              ghost.controllerRef.current?.update();
+             }}
+             onInput={handleInput}
+             onPaste={handlePaste}
+@@ -2792,6 +2832,22 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
+               overflow: "auto",
+             }}
+           />
++          {/* Ghost text layer (phase 2 overlay). Positioned via the anchor
++              textarea's metrics; pointer-events none so typing is untouched. */}
++          {ghost.ghost.completion && ghost.caretPosition && (
++            <div className="ghost-text-layer" aria-hidden="true">
++              <span
++                className="ghost-text"
++                style={{
++                  position: "absolute",
++                  left: ghost.caretPosition.left + 14,
++                  top: ghost.caretPosition.top + 10,
++                }}
++              >
++                {ghost.ghost.completion}
++              </span>
++            </div>
++          )}
+ 
+           {isStreaming ? (
+             <div style={{ display: "flex", alignItems: "center", gap: 6, flexShrink: 0, alignSelf: "flex-end" }}>
+diff --git a/components/ChatWindow.tsx b/components/ChatWindow.tsx
+index 6911167..36385c9 100644
+--- a/components/ChatWindow.tsx
++++ b/components/ChatWindow.tsx
+@@ -39,6 +39,8 @@ import {
+ import { sessionVisibleCounts } from "@/lib/scroll-memory";
+ import { isImeComposing } from "@/lib/ime";
+ import { assignMessageKeys, createMessageKeyTracker } from "@/lib/message-keys";
++import { SuggestionChips, type SuggestionChipsHandle } from "./SuggestionChips";
++import { PiTodosPanel } from "./PiTodosPanel";
+ 
+ interface Props {
+   session: SessionInfo | null;
+@@ -293,7 +295,7 @@ export function ChatWindow({ session, searchTarget, onSearchTargetHandled, initi
+     retryInfo, contextUsage, forkingEntryId, summarizationRetry, automation, handleSetAutomation,
+     isCompacting, compactError, compactNotice, compactResult, displayModel: displayModelValue, modelSwitching, sessionStats,
+     slashCommands, slashCommandsLoading, queuedMessages,
+-    notices, extensionDialog, waitingExtensionDialogCount, extensionCustomUi, waitingExtensionCustomUiCount, extensionStatuses, extensionWidgets, respondToExtensionUi, sendExtensionCustomInput, setNoticePaused,
++    notices, extensionDialog, waitingExtensionDialogCount, extensionCustomUi, waitingExtensionCustomUiCount, extensionStatuses, extensionWidgets, piTodos, respondToExtensionUi, sendExtensionCustomInput, setNoticePaused,
+     isAutoModelSelection,
+     isAutoThinkingSelection,
+     defaultModel,
+@@ -322,6 +324,46 @@ export function ChatWindow({ session, searchTarget, onSearchTargetHandled, initi
+     onScrollPositionChange,
+   });
+   const sessionBusy = agentRunning || bashRunning;
++
++  // Follow-up suggestions (CDS overlay): fetch right after a turn settles,
++  // present inside an idle composer, drop them the moment the agent runs
++  // again or the user types. All logic lives in the overlay component.
++  const suggestionChipsRef = useRef<SuggestionChipsHandle | null>(null);
++  // Fetch only after a busy → idle transition on this mount: reopening an
++  // already-settled session must not re-ask the model for suggestions.
++  const sawBusyRef = useRef(false);
++  useEffect(() => {
++    if (sessionBusy) {
++      sawBusyRef.current = true;
++      suggestionChipsRef.current?.clear();
++      return;
++    }
++    if (!sawBusyRef.current) return; // ride-along only: skip on initial idle mount
++    const sid = sessionIdRef.current;
++    if (!sid) return;
++    let cancelled = false;
++    const controller = new AbortController();
++    const timer = setTimeout(() => {
++      fetch(`/api/agent/${encodeURIComponent(sid)}/suggestions`, { signal: controller.signal, method: "POST" })
++        .then((response) => (response.ok ? response.json() : null))
++        .then((payload: { suggestions?: unknown } | null) => {
++          if (cancelled) return;
++          const items = Array.isArray(payload?.suggestions)
++            ? payload.suggestions.filter((item): item is string => typeof item === "string")
++            : null;
++          if (items && items.length > 0) suggestionChipsRef.current?.present(items);
++        })
++        .catch(() => {});
++    }, 600);
++    return () => {
++      cancelled = true;
++      controller.abort();
++      clearTimeout(timer);
++    };
++    // sessionIdRef is a stable ref from useAgentSession and never changes identity.
++    // eslint-disable-next-line react-hooks/exhaustive-deps
++  }, [sessionBusy]);
++
+   const [quotedSelection, setQuotedSelection] = useState<{
+     text: string;
+     top: number;
+@@ -1178,7 +1220,8 @@ export function ChatWindow({ session, searchTarget, onSearchTargetHandled, initi
+     );
+   }
+ 
+-  const aboveEditorWidgets = extensionWidgets.filter((widget) => widget.placement !== "belowEditor");
++  // pi-todos renders as the top-right PiTodosPanel; skip its duplicate text widget.
++  const aboveEditorWidgets = extensionWidgets.filter((widget) => widget.placement !== "belowEditor" && widget.key !== "pi-todos");
+   const belowEditorWidgets = extensionWidgets.filter((widget) => widget.placement === "belowEditor");
+   const hasExtensionStatus = formatExtensionStatusLine(extensionStatuses).length > 0;
+ 
+@@ -1268,6 +1311,9 @@ export function ChatWindow({ session, searchTarget, onSearchTargetHandled, initi
+         {extensionCustomUi && (
+           <ExtensionCustomPanel key={extensionCustomUi.id} request={extensionCustomUi} waitingCount={waitingExtensionCustomUiCount} onInput={sendExtensionCustomInput} />
+         )}
++        {/* pi-todos: Claude Co-Work style task panel pinned to the chat area's
++            top-right corner (state mirrored through get_state, no polling). */}
++        <PiTodosPanel todos={piTodos?.todos ?? null} />
+         {!isEmptyNew && <>
+         <div
+           ref={scrollContainerRef}
+@@ -1651,6 +1697,11 @@ export function ChatWindow({ session, searchTarget, onSearchTargetHandled, initi
+             </div>
+           </div>
+         )}
++        <SuggestionChips
++          handleRef={suggestionChipsRef}
++          onInsert={(text) => chatInputRef?.current?.insertIfEmpty(text)}
++          onFocusInput={() => chatInputRef?.current?.focus()}
++        />
+         {chatInputElement}
+         {(belowEditorWidgets.length > 0 || hasExtensionStatus) && (
+           <div className={`extension-status-shelf${belowEditorWidgets.length > 0 ? " has-widgets" : ""}${hasExtensionStatus ? " has-status" : ""}`}>
+diff --git a/components/ContextUsageRing.tsx b/components/ContextUsageRing.tsx
+index 62ebd98..2800861 100644
+--- a/components/ContextUsageRing.tsx
++++ b/components/ContextUsageRing.tsx
+@@ -62,6 +62,12 @@ export function ContextUsageRing({ contextUsage, sessionStats, onOpenStats }: Co
+   }
+   const title = tooltipParts.length > 0 ? tooltipParts.join(" · ") : t("chat.ctxUsage");
+ 
++  // The ring alone is too subtle: also show the numbers inline so usage is
++  // readable at a glance (hover was slow to appear and hidden entirely).
++  const inlineLabel = showTooltip && percent !== null && windowSize > 0
++    ? `${percent >= 10 ? percent.toFixed(0) : percent.toFixed(1)}% / ${fmtWindow(windowSize)}`
++    : null;
++
+   return (
+     <button
+       type="button"
+@@ -74,7 +80,7 @@ export function ContextUsageRing({ contextUsage, sessionStats, onOpenStats }: Co
+       }}
+       style={{
+         display: "flex", alignItems: "center", justifyContent: "center",
+-        width: 28, height: 28, padding: 0, flexShrink: 0,
++        gap: 4, padding: "0 6px 0 2", height: 28, flexShrink: 0,
+         background: "none", border: "none", borderRadius: 9,
+         cursor: hasUsage ? "pointer" : "default",
+         transition: "background 0.12s, opacity 0.12s",
+@@ -103,6 +109,17 @@ export function ContextUsageRing({ contextUsage, sessionStats, onOpenStats }: Co
+           opacity={percent === null ? 0.35 : 1}
+         />
+       </svg>
++      {inlineLabel && (
++        <span style={{
++          fontSize: 11,
++          fontWeight: 400,
++          color: pct >= CTX_DANGER_PCT ? "var(--danger)" : "var(--text-dim)",
++          fontVariantNumeric: "tabular-nums",
++          whiteSpace: "nowrap",
++        }}>
++          {inlineLabel}
++        </span>
++      )}
+     </button>
+   );
+ }
+diff --git a/components/MessageView.tsx b/components/MessageView.tsx
+index 21cfa70..c16420e 100644
+--- a/components/MessageView.tsx
++++ b/components/MessageView.tsx
+@@ -16,6 +16,7 @@ import { isApplyPatchToolName, isEditToolName } from "@/lib/tool-names";
+ import { isToolCallExpanded, setToolCallExpanded } from "@/lib/tool-call-expansion";
+ import { isThinkingExpandedByDefault, THINKING_EXPANDED_EVENT } from "@/lib/thinking-expansion-preference";
+ import { TurnWrittenFiles } from "./TurnWrittenFiles";
++import { UsageFooter } from "./UsageFooter";
+ import type { WrittenFile } from "@/lib/turn-written-files";
+ import { skillExpansionToCommand } from "@/lib/slash-display";
+ import type { SubagentToolDetails } from "@/lib/subagent-extension";
+@@ -824,9 +825,11 @@ function AssistantMessageView({
+                     {est}
+                   </span>
+                   {tps !== null && (() => {
+-                    const bg = tps >= 50 ? "#53b3cb" : tps >= 30 ? "#9bc53d" : tps >= 15 ? "#f9c22e" : "#e01a4f";
++                    const bg = tps >= 50 ? "#53b3cb" : tps >= 30 ? "#9bc53d" : tps >= 15 ? "#f9c22e" : "#d81a4f";
++                    // Bright backgrounds need dark ink; white only survives on the red end.
++                    const fg = tps < 15 ? "#ffffff" : "#16181d";
+                     return (
+-                      <span style={{ marginLeft: 6, padding: "1px 6px", borderRadius: 4, background: bg, color: "#fff", fontSize: 11, fontWeight: 400 }}>
++                      <span style={{ marginLeft: 6, padding: "1px 6px", borderRadius: 4, background: bg, color: fg, fontSize: 11, fontWeight: 500 }}>
+                         {tps.toFixed(1)} t/s
+                       </span>
+                     );
+@@ -917,9 +920,7 @@ function AssistantMessageView({
+         display: "flex", alignItems: "center", gap: 8, marginTop: 4,
+       }}>
+         {message.usage && !isStreaming && (
+-          <div className="message-meta" style={{ fontSize: 11, color: "var(--text-dim)" }}>
+-            {formatUsage(message.usage)}
+-          </div>
++          <UsageFooter usage={message.usage} durationMs={message.durationMs} />
+         )}
+         {textContent && !isStreaming && (
+           <button
+@@ -2105,18 +2106,30 @@ function getToolPreview(block: ToolCallContent): string {
+   return String(first).slice(0, 120);
+ }
+ 
++// eslint-disable-next-line @typescript-eslint/no-unused-vars -- fork: superseded by UsageFooter, body kept to ease upstream merges
+ function formatUsage(usage: {
+   input: number;
+   output: number;
+   cacheRead: number;
+   cacheWrite: number;
+   cost: { total: number };
+-}): string {
++}, durationMs?: number): string {
+   const parts = [];
+   if (usage.input) parts.push(`${usage.input.toLocaleString()} in`);
+   if (usage.output) parts.push(`${usage.output.toLocaleString()} out`);
++  const cached = (usage.cacheRead ?? 0) + (usage.cacheWrite ?? 0);
+   if (usage.cacheRead) parts.push(`${usage.cacheRead.toLocaleString()} cache R`);
+   if (usage.cacheWrite) parts.push(`${usage.cacheWrite.toLocaleString()} cache W`);
++  // Cache hit rate over the whole prompt (read + write both skipped a full re-read).
++  const promptTokens = usage.input + cached;
++  if (cached > 0 && promptTokens > 0) {
++    parts.push(`cache hit ${Math.round((usage.cacheRead / promptTokens) * 100)}%`);
++  }
++  // Average tokens/s for this response; durationMs is provider-measured monotonic time.
++  if (usage.output && durationMs && durationMs > 0) {
++    const tps = usage.output / (durationMs / 1000);
++    if (tps > 0) parts.push(`${tps >= 10 ? tps.toFixed(0) : tps.toFixed(1)} t/s`);
++  }
+   if (usage.cost?.total) parts.push(`$${usage.cost.total.toFixed(4)}`);
+   return parts.join(" · ");
+ }
+diff --git a/components/ModelSelector.tsx b/components/ModelSelector.tsx
+index 1bd1843..8b5404a 100644
+--- a/components/ModelSelector.tsx
++++ b/components/ModelSelector.tsx
+@@ -91,6 +91,20 @@ export function ModelSelector({
+     : emptyLabel ?? (sortedOptions.length > 0 ? "Select model" : "No models"));
+   const buttonTitle = busy ? "Switching model" : locked ? currentName : sortedOptions.length > 0 || onClear ? "Change model" : "No available models";
+ 
++  // Progressive menu (user request): provider list first, models on drill-in.
++  // Single-provider setups and active filters keep the flat grouped list —
++  // a cascade with one provider is just an extra click.
++  const [openProvider, setOpenProvider] = useState<string | null>(null);
++  const cascadeEnabled = modelsByProvider.length > 1;
++
++  useEffect(() => {
++    if (!open || !cascadeEnabled) return;
++    // Pre-drill into the provider of the currently selected model so the
++    // menu opens where the user's current choice lives? No — open at the
++    // provider list; the current selection is badged there instead.
++    setOpenProvider(null);
++  }, [open, cascadeEnabled]);
++
+   useEffect(() => {
+     const handleOutsideClick = (event: MouseEvent) => {
+       if (
+@@ -135,7 +149,8 @@ export function ModelSelector({
+         justifyContent: isMobile ? "flex-start" : undefined,
+         gap: 6,
+         width: isMobile ? "100%" : undefined,
+-        maxWidth: isMobile ? "100%" : 220,
++        // No 220px cap (user request): long model names must render in full.
++        maxWidth: isMobile ? "100%" : "max-content",
+         height: 32,
+         padding: isMobile ? "8px 10px" : "8px 12px",
+         overflow: "hidden",
+@@ -153,12 +168,14 @@ export function ModelSelector({
+     const active = option.modelId === value?.modelId && option.provider === value?.provider;
+     setOpen(false);
+     setFilter("");
++    setOpenProvider(null);
+     if (!active || isAutoSelection) onChange(option.provider, option.modelId);
+   };
+ 
+   const saveDefault = (option: ModelSelectorOption) => {
+     setOpen(false);
+     setFilter("");
++    setOpenProvider(null);
+     onSetDefault?.(option.provider, option.modelId);
+   };
+ 
+@@ -297,6 +314,7 @@ export function ModelSelector({
+                 <SelectorRow active={!value} gutter={Boolean(onSetDefault)} onSelect={() => {
+                   setOpen(false);
+                   setFilter("");
++                  setOpenProvider(null);
+                   onClear();
+                 }}>
+                   <OptionLabel label={emptyLabel ?? "Default"} />
+@@ -306,32 +324,85 @@ export function ModelSelector({
+                 <div style={{ padding: "8px 12px", color: "var(--text-dim)", fontSize: 12, whiteSpace: "nowrap" }}>
+                   {filter.trim() ? t("chat.noMatchingModels") : "No available models"}
+                 </div>
+-              ) : modelsByProvider.map((group, index) => (
+-                <div key={group.provider}>
+-                  {modelsByProvider.length > 1 && (
+-                    <div style={{ padding: "6px 12px 4px", borderTop: index > 0 || onClear ? "1px solid var(--border)" : "none", color: "var(--text-dim)", fontSize: 10, fontWeight: 600, letterSpacing: 0, textTransform: "uppercase" }}>
+-                      {group.provider}
+-                    </div>
++              ) : cascadeEnabled && !filter.trim() && openProvider === null ? (
++                /* Level 1: provider list. Each row drills into that
++                   provider's models; the current provider is badged. */
++                modelsByProvider.map((group) => {
++                  const providerHasSelection = group.options.some(
++                    (option) => option.modelId === value?.modelId && option.provider === value?.provider,
++                  );
++                  const currentModelName = providerHasSelection
++                    ? group.options.find((option) => option.modelId === value?.modelId)?.name
++                    : undefined;
++                  return (
++                    <SelectorRow
++                      key={group.provider}
++                      active={providerHasSelection}
++                      onSelect={() => setOpenProvider(group.provider)}
++                    >
++                      <span style={{ display: "flex", alignItems: "center", gap: 8, minWidth: 0, flex: 1 }}>
++                        <OptionLabel label={group.provider} />
++                        <span style={{ color: "var(--text-dim)", fontSize: 11, flexShrink: 0 }}>{group.options.length}</span>
++                        {currentModelName && (
++                          <span title={currentModelName} style={{ color: "var(--text-dim)", fontSize: 11, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", flex: 1, textAlign: "right" }}>
++                            {currentModelName}
++                          </span>
++                        )}
++                        <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" style={{ flexShrink: 0, color: "var(--text-dim)" }}>
++                          <polyline points="9 6 15 12 9 18" />
++                        </svg>
++                      </span>
++                    </SelectorRow>
++                  );
++                })
++              ) : (
++                /* Level 2 (drilled in) or flat list (single provider / filtering). */
++                <div>
++                  {cascadeEnabled && !filter.trim() && (
++                    <button
++                      type="button"
++                      onClick={() => setOpenProvider(null)}
++                      style={{
++                        display: "flex", alignItems: "center", gap: 6, width: "100%",
++                        padding: "7px 12px", border: "none", background: "none",
++                        color: "var(--text-dim)", fontSize: 11, cursor: "pointer",
++                        borderBottom: "1px solid var(--border)", textAlign: "left",
++                      }}
++                    >
++                      <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
++                        <polyline points="15 6 9 12 15 18" />
++                      </svg>
++                      {openProvider}
++                    </button>
+                   )}
+-                  {group.options.map((option) => {
+-                    return (
+-                      <SelectorRow
+-                        key={`${option.provider}:${option.modelId}`}
+-                        active={option.modelId === value?.modelId && option.provider === value?.provider}
+-                        onSelect={() => choose(option)}
+-                        star={onSetDefault ? {
+-                          isDefault: option.modelId === defaultValue?.modelId && option.provider === defaultValue?.provider,
+-                          saveLabel: t("chat.saveDefaultModel"),
+-                          defaultLabel: t("chat.defaultModel"),
+-                          onSave: () => saveDefault(option),
+-                        } : undefined}
+-                      >
+-                        <OptionLabel label={option.name} />
+-                      </SelectorRow>
+-                    );
+-                  })}
++                  {(cascadeEnabled && !filter.trim() ? modelsByProvider.filter((group) => group.provider === openProvider) : modelsByProvider).map((group, index) => (
++                    <div key={group.provider}>
++                      {!cascadeEnabled && modelsByProvider.length > 1 && (
++                        <div style={{ padding: "6px 12px 4px", borderTop: index > 0 || onClear ? "1px solid var(--border)" : "none", color: "var(--text-dim)", fontSize: 10, fontWeight: 600, letterSpacing: 0, textTransform: "uppercase" }}>
++                          {group.provider}
++                        </div>
++                      )}
++                      {group.options.map((option) => {
++                        return (
++                          <SelectorRow
++                            key={`${option.provider}:${option.modelId}`}
++                            active={option.modelId === value?.modelId && option.provider === value?.provider}
++                            onSelect={() => choose(option)}
++                            star={onSetDefault ? {
++                              isDefault: option.modelId === defaultValue?.modelId && option.provider === defaultValue?.provider,
++                              saveLabel: t("chat.saveDefaultModel"),
++                              defaultLabel: t("chat.defaultModel"),
++                              onSave: () => saveDefault(option),
++                            } : undefined}
++                          >
++                            <OptionLabel label={option.name} />
++                          </SelectorRow>
++                        );
++                      })}
++                    </div>
++                  ))}
+                 </div>
+-              ))}
++              )}
+             </div>
+           </div>
+         );
+diff --git a/components/SessionStatsPanel.tsx b/components/SessionStatsPanel.tsx
+index 4a9720b..e79b428 100644
+--- a/components/SessionStatsPanel.tsx
++++ b/components/SessionStatsPanel.tsx
+@@ -59,8 +59,18 @@ export function SessionStatsPanel({ sessionStats, contextUsage, isMobile }: Sess
+         ];
+         const ctx = contextUsage ?? sessionStats.contextUsage;
+         const formatCompact = (n: number) => n >= 1_000_000 ? `${(n / 1_000_000).toFixed(1)}M` : n >= 1000 ? `${(n / 1000).toFixed(0)}k` : String(n);
++        const cached = sessionStats.tokens.cacheRead + sessionStats.tokens.cacheWrite;
++        const promptTokens = sessionStats.tokens.input + cached;
++        const fmtActive = (ms: number) => {
++          const totalMin = Math.floor(ms / 60_000);
++          const h = Math.floor(totalMin / 60);
++          const m = totalMin % 60;
++          return h > 0 ? `${h}h${m}m` : `${m}m`;
++        };
+         const extraTokenRows = [
+           ...(sessionStats.cost > 0 ? [[translate("session.cost"), `$${sessionStats.cost.toFixed(4)}`]] : []),
++          ...(cached > 0 && promptTokens > 0 ? [["Cache hit", `${Math.round((sessionStats.tokens.cacheRead / promptTokens) * 100)}%`]] : []),
++          ...(sessionStats.totalActiveMs && sessionStats.totalActiveMs > 0 ? [["Elapsed", fmtActive(sessionStats.totalActiveMs)]] : []),
+           ...(ctx?.contextWindow ? [[translate("session.context"), `${ctx.percent !== null ? `${ctx.percent.toFixed(1)}%` : "?"} / ${formatCompact(ctx.contextWindow)}`]] : []),
+         ];
+         const section = (
+diff --git a/hooks/useAgentSession.ts b/hooks/useAgentSession.ts
+index 8b60425..cb0d4f9 100644
+--- a/hooks/useAgentSession.ts
++++ b/hooks/useAgentSession.ts
+@@ -98,6 +98,7 @@ interface LastAssistantTextResponse {
+ 
+ type AgentStateResponse = {
+   model?: { provider: string; id: string };
++  piTodos?: { todos: { id: number; text: string; done: boolean }[]; nextId: number };
+   contextUsage?: { percent: number | null; contextWindow: number; tokens: number | null } | null;
+   systemPrompt?: string;
+   thinkingLevel?: string;
+@@ -452,6 +453,8 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
+   const [extensionCustomUis, setExtensionCustomUis] = useState<ExtensionUiCustomRequest[]>([]);
+   const [extensionStatuses, setExtensionStatuses] = useState<ExtensionStatusItem[]>([]);
+   const [extensionWidgets, setExtensionWidgets] = useState<ExtensionWidgetItem[]>([]);
++  // pi-todos state mirrored through get_state (updated via tool_execution_end).
++  const [piTodos, setPiTodos] = useState<AgentStateResponse["piTodos"] | null>(null);
+   const [queuedMessages, setQueuedMessages] = useState<QueuedMessages>({ steering: [], followUp: [] });
+ 
+   const eventConnectionRef = useRef<AgentEventConnection | null>(null);
+@@ -648,6 +651,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
+     setSystemPrompt(null);
+     setExtensionStatuses([]);
+     setExtensionWidgets([]);
++    setPiTodos(null);
+     setQueuedMessages({ steering: [], followUp: [] });
+     setLiveModel(null);
+     setRoutedModel(null);
+@@ -911,6 +915,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
+           if (liveState.systemPrompt !== undefined) setSystemPrompt(liveState.systemPrompt ?? null);
+           if (liveState.extensionStatuses !== undefined) setExtensionStatuses(liveState.extensionStatuses ?? []);
+           if (liveState.extensionWidgets !== undefined) setExtensionWidgets(liveState.extensionWidgets ?? []);
++          if (liveState.piTodos !== undefined) setPiTodos(liveState.piTodos ?? null);
+           if (liveState.queuedMessages !== undefined) setQueuedMessages(normalizeQueuedMessages(liveState.queuedMessages));
+         } else if (!agentState.running) {
+           setQueuedMessages({ steering: [], followUp: [] });
+@@ -1891,6 +1896,10 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
+       case "thinking_level_changed":
+         setLiveThinkingLevel(asConcreteThinkingLevel(event.level as string));
+         break;
++      case "pi_todos_update":
++        // Pushed by the wrapper after every `todo` tool call (lib/pi-todos.ts).
++        setPiTodos((event.piTodos as AgentStateResponse["piTodos"]) ?? null);
++        break;
+       case "session_info_changed":
+         // Renames from other windows/extensions arrive here; the server bumps
+         // sessionListVersion on this event, so the sidebar refreshes itself.
+@@ -2887,6 +2896,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
+           if (agentState.state.systemPrompt !== undefined) setSystemPrompt(agentState.state.systemPrompt ?? null);
+           if (agentState.state.extensionStatuses !== undefined) setExtensionStatuses(agentState.state.extensionStatuses ?? []);
+           if (agentState.state.extensionWidgets !== undefined) setExtensionWidgets(agentState.state.extensionWidgets ?? []);
++          if (agentState.state.piTodos !== undefined) setPiTodos(agentState.state.piTodos ?? null);
+           if (agentState.state.queuedMessages !== undefined) setQueuedMessages(normalizeQueuedMessages(agentState.state.queuedMessages));
+         }
+       });
+@@ -3116,7 +3126,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
+     retryInfo, contextUsage, systemPrompt, forkingEntryId, retryLoad, dismissModelScopeWarnings,
+     isCompacting, compactError, compactNotice, compactResult, currentModel, displayModel, modelSwitching, sessionStats,
+     slashCommands, slashCommandsLoading, queuedMessages,
+-    notices: noticeState.visible, addNotice, extensionDialog, waitingExtensionDialogCount, extensionCustomUi, waitingExtensionCustomUiCount, extensionStatuses, extensionWidgets, respondToExtensionUi, sendExtensionCustomInput,
++    notices: noticeState.visible, addNotice, extensionDialog, waitingExtensionDialogCount, extensionCustomUi, waitingExtensionCustomUiCount, extensionStatuses, extensionWidgets, piTodos, respondToExtensionUi, sendExtensionCustomInput,
+     isAutoModelSelection: isNew && newSessionModel === null,
+     isAutoThinkingSelection: isNew && newSessionThinkingLevel === null,
+     defaultModel: newSessionDefaultModel,
+diff --git a/lib/rpc-manager.ts b/lib/rpc-manager.ts
+index a50d391..e55d448 100644
+--- a/lib/rpc-manager.ts
++++ b/lib/rpc-manager.ts
+@@ -47,6 +47,7 @@ import { resolveShellTools } from "./powershell-settings";
+ import { CHAT_ONLY_RESOURCE_LOADER_OPTIONS, contextFilesSystemPrompt } from "./chat-only";
+ import { createExactSystemPromptExtension } from "./exact-system-prompt";
+ import { createArtifactGuideExtension } from "./artifact-guide-extension";
++import { piTodosFromEvent, reconstructPiTodos } from "./pi-todos";
+ import { createPiWebBuiltinExtensions } from "./builtin-extensions";
+ import type { McpHost } from "./mcp-host";
+ import { mcpPromptPreparation, type McpCommandCandidate } from "./mcp-command";
+@@ -452,6 +453,10 @@ export class AgentSessionWrapper {
+       this.trackActiveToolEvent(event);
+       if (IDLE_RESET_EVENT_TYPES.has(event.type)) this.resetIdleTimer();
+       this.emit(event);
++      // pi-todos: the wire projection strips tool-result details, so push the
++      // full list as its own small event after each `todo` call or /todos edit.
++      const piTodos = piTodosFromEvent(event);
++      if (piTodos) this.emit({ type: "pi_todos_update", piTodos });
+       // `agent_end` fires before the post-run pipeline (compaction, branch
+       // summaries, queued continuations) completes, so the running set can
+       // only shrink at `agent_settled` — or when the RPC prompt itself
+@@ -1000,6 +1005,9 @@ export class AgentSessionWrapper {
+           thinkingLevel: this.inner.agent.state?.thinkingLevel ?? "off",
+           extensionStatuses: this.getExtensionStatuses(),
+           extensionWidgets: this.getExtensionWidgets(),
++          // pi-todos: replay the current branch (tool results + manual custom
++          // entries), so resume, branch navigation and /todos edits all agree.
++          piTodos: reconstructPiTodos(this.inner.sessionManager?.getBranch?.() ?? []),
+           routedModel: this.getRoutedModel(),
+           cacheWarming: this.getCacheWarming(),
+         };
+diff --git a/lib/types.ts b/lib/types.ts
+index 5906c8b..03a27f9 100644
+--- a/lib/types.ts
++++ b/lib/types.ts
+@@ -79,6 +79,8 @@ export interface AssistantMessage {
+   stopReason?: string;
+   errorMessage?: string;
+   timestamp?: number;
++  /** Milliseconds the response took (pi-ai AssistantMessage; passes through normalization). */
++  durationMs?: number;
+   usage?: AgentUsage;
+ }
+ 

@@ -1,0 +1,356 @@
+/* ==========================================================================
+   cds-overlay.css — CDS token subset + SuggestionChips styles
+   Folder: components/cds-overlay.css (new file — no upstream file touched)
+
+   Tokens extracted from open-claude-ui (MIT) `code-examples/cds-theme.css`.
+   Deliberately a token SUBSET: the full stylesheet rewrites font weights
+   globally (`.dark .font-medium` families) and would fight the upstream
+   app's typography, so only the variables and the SuggestionChips component
+   styles are carried here. Namespaced to avoid clashing with upstream CSS.
+   ========================================================================== */
+
+:root {
+  --cds-surface-0: #f5f5f3;
+  --cds-surface-2: #ffffff;
+  --cds-surface-3: #ffffff;
+  --cds-clay: #d97757;
+  --cds-clay-hover: #cc5a36;
+  --cds-clay-light: #fbf3ef;
+  --cds-alpha-2: hsla(0, 0%, 8%, 0.10);
+  --cds-alpha-3: hsla(0, 0%, 8%, 0.20);
+  --cds-border: var(--cds-alpha-2);
+  --cds-border-strong: var(--cds-alpha-3);
+  --cds-fill-ghost-hover: hsla(0, 0%, 8%, 0.05);
+  --cds-text-secondary: #525252;
+  --cds-text-muted: #8a8a8a;
+  --cds-text-primary: #151515;
+  --cds-shadow-composer: 0 4px 20px rgba(0, 0, 0, 0.035), inset 0 0 0 1px var(--cds-border);
+  --cds-radius-composer: 20px;
+}
+
+html.dark {
+  --cds-surface-0: #0b0b0a;
+  --cds-surface-2: #1a1a19;
+  --cds-surface-3: #20201e;
+  --cds-clay: #d97757;
+  --cds-clay-hover: #e08264;
+  --cds-clay-light: rgba(217, 119, 87, 0.12);
+  --cds-alpha-2: hsla(0, 0%, 100%, 0.09);
+  --cds-alpha-3: hsla(0, 0%, 100%, 0.18);
+  --cds-border: var(--cds-alpha-2);
+  --cds-border-strong: hsla(0, 0%, 100%, 0.18);
+  --cds-fill-ghost-hover: hsla(0, 0%, 100%, 0.05);
+  --cds-text-secondary: #a3a3a3;
+  --cds-text-muted: #666666;
+  --cds-text-primary: #f5f5f5;
+  --cds-shadow-composer: 0 4px 20px rgba(0, 0, 0, 0.4), inset 0 0 0 1px var(--cds-border);
+}
+
+.suggestion-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding: 0 16px 8px;
+  max-width: var(--chat-content-max-width, 820px);
+  margin: 0 auto;
+  width: 100%;
+  box-sizing: border-box;
+  opacity: 0;
+  transform: translateY(6px);
+  transition: opacity 180ms cubic-bezier(0.22, 1, 0.36, 1),
+              transform 220ms cubic-bezier(0.22, 1, 0.36, 1);
+  pointer-events: none;
+}
+
+.suggestion-chips[data-entered="true"] {
+  opacity: 1;
+  transform: translateY(0);
+  pointer-events: auto;
+}
+
+.suggestion-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  max-width: 100%;
+  padding: 6px 12px;
+  border: 1px solid var(--cds-border);
+  border-radius: var(--cds-radius-composer);
+  background: var(--cds-surface-2);
+  color: var(--cds-text-secondary);
+  font-size: 13px;
+  line-height: 1.4;
+  cursor: pointer;
+  box-shadow: var(--cds-shadow-composer);
+  transition: background 140ms ease, border-color 140ms ease,
+              color 140ms ease, transform 140ms cubic-bezier(0.22, 1, 0.36, 1);
+  -webkit-user-select: none;
+  user-select: none;
+}
+
+.suggestion-chip:hover {
+  background: var(--cds-clay-light);
+  border-color: var(--cds-clay);
+  color: var(--cds-text-primary);
+  transform: translateY(-1px);
+}
+
+.suggestion-chip:active {
+  transform: translateY(0);
+}
+
+.suggestion-chip:focus-visible {
+  outline: 1.5px solid var(--cds-clay);
+  outline-offset: 1px;
+}
+
+.suggestion-chip-label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 420px;
+}
+
+.suggestion-chip-arrow {
+  color: var(--cds-clay);
+  font-size: 12px;
+  line-height: 1;
+  flex: none;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .suggestion-chips {
+    transition: none;
+  }
+  .suggestion-chip {
+    transition: none;
+  }
+}
+
+/* ==========================================================================
+   Ghost text (phase 2) — inline composer completion
+   Rendered inside the composer's relative wrapper, positioned by
+   GhostTextOverlay's caret measurement. CDS-consistent: muted ink, no box.
+   ========================================================================== */
+
+.ghost-text {
+  color: var(--cds-text-muted);
+  opacity: 0.75;
+  white-space: pre-wrap;
+  word-wrap: break-word;
+  font: inherit;
+  pointer-events: none;
+  user-select: none;
+}
+
+.ghost-text-hint {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  margin-left: 12px;
+  padding: 1px 8px;
+  border-radius: var(--df-radius-pill, 999px);
+  border: 1px solid var(--cds-border);
+  color: var(--cds-text-muted);
+  font-size: 11px;
+  line-height: 1.6;
+  pointer-events: none;
+  user-select: none;
+  opacity: 0.9;
+}
+
+.ghost-text-hint kbd {
+  font-family: inherit;
+  font-size: 10px;
+  font-weight: 600;
+  padding: 0 4px;
+  border-radius: 3px;
+  border: 1px solid var(--cds-border-strong);
+  background: var(--cds-surface-2);
+  color: var(--cds-text-secondary);
+}
+
+/* The ghost layer sits inside the composer's relative wrapper; the textarea
+   itself stays untouched. The overlay draws AFTER the textarea in DOM order
+   so it paints on top. */
+.ghost-text-layer {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  pointer-events: none;
+}
+
+
+/* ==========================================================================
+   Co-Work panel (phase 3) — Progress / Context / Memory sections
+   Reference: Claude Co-Work's quiet section list. CDS tokens only.
+   ========================================================================== */
+
+.cowork-panel {
+  padding: 0 16px 8px;
+  max-width: var(--chat-content-max-width, 820px);
+  margin: 0 auto;
+  width: 100%;
+  box-sizing: border-box;
+}
+
+.cowork-section {
+  border: 1px solid var(--cds-border);
+  border-radius: var(--cds-panel-radius, 10px);
+  background: var(--cds-surface-2);
+  box-shadow: var(--cds-shadow-composer);
+  overflow: hidden;
+}
+
+.cowork-section + .cowork-section {
+  margin-top: 8px;
+}
+
+.cowork-section-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 7px 12px 5px;
+}
+
+.cowork-section-title {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--cds-text-primary);
+  letter-spacing: -0.01em;
+}
+
+.cowork-section-count {
+  font-size: 11px;
+  color: var(--cds-text-muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.cowork-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 5px 12px 7px;
+  font-size: 13px;
+  line-height: 1.45;
+  color: var(--cds-text-secondary);
+  text-decoration: none;
+}
+
+.cowork-row-glyph {
+  flex: none;
+  color: var(--cds-clay);
+  font-size: 12px;
+}
+
+.cowork-task-done .cowork-row-text {
+  color: var(--cds-text-muted);
+  text-decoration: line-through;
+  text-decoration-color: var(--cds-border-strong);
+}
+
+.cowork-task-in_progress .cowork-row-text {
+  color: var(--cds-text-primary);
+  font-weight: 500;
+}
+
+.cowork-row-dim {
+  color: var(--cds-text-muted);
+}
+
+.cowork-memory-link {
+  cursor: pointer;
+}
+
+.cowork-memory-link:hover .cowork-row-text {
+  color: var(--cds-clay);
+}
+
+html.dark .cowork-section {
+  background: var(--cds-surface-2);
+}
+
+/* ==========================================================================
+   pi-todos panel — Claude Co-Work style card pinned to the chat area's
+   top-right corner. Reuses the cowork rows; only placement differs.
+   ========================================================================== */
+
+.pi-todos-panel {
+  position: absolute;
+  top: 12px;
+  right: 16px;
+  z-index: 15;
+  padding: 0;
+  width: min(300px, calc(100% - 32px));
+  max-height: calc(100% - 24px);
+  overflow-y: auto;
+  pointer-events: auto;
+}
+
+.pi-todos-panel .cowork-section + .cowork-section {
+  margin-top: 6px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .pi-todos-panel {
+    transition: none;
+  }
+}
+
+/* --------------------------------------------------------------------------
+   Usage footer (components/UsageFooter.tsx) — claude-mods statusline palette:
+   token total blue, cache hit bold green/amber/red by level, cost salmon-red,
+   labels and breakdown muted. Light themes get darker shades for contrast.
+   -------------------------------------------------------------------------- */
+.usage-footer {
+  --usage-blue: #1f63d1;
+  --usage-good: #15803d;
+  --usage-fair: #b45309;
+  --usage-poor: #c2283c;
+  --usage-cost: #c2410c;
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  row-gap: 2px;
+  padding: 2px 8px;
+  border-radius: 6px;
+  background: var(--cds-fill-ghost-hover, rgba(0, 0, 0, 0.04));
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+  color: var(--text-dim);
+  line-height: 1.6;
+}
+
+html.dark .usage-footer,
+[data-theme="dark"] .usage-footer,
+[data-theme="pine"] .usage-footer {
+  --usage-blue: #6cb6ff;
+  --usage-good: #4ade80;
+  --usage-fair: #fbbf24;
+  --usage-poor: #f87171;
+  --usage-cost: #ff8a7a;
+  background: rgba(255, 255, 255, 0.05);
+}
+
+.usage-footer-sep {
+  white-space: pre;
+  opacity: 0.55;
+}
+
+.usage-footer-total {
+  color: var(--usage-blue);
+  font-weight: 600;
+}
+
+.usage-footer-hit {
+  font-weight: 700;
+}
+
+.usage-footer-hit-good { color: var(--usage-good); }
+.usage-footer-hit-fair { color: var(--usage-fair); }
+.usage-footer-hit-poor { color: var(--usage-poor); }
+
+.usage-footer-cost {
+  color: var(--usage-cost);
+  font-weight: 600;
+}
