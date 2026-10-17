@@ -2676,6 +2676,29 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
     }
   }, [opts.chatInputRef, addNotice]);
 
+  /** Fork overlay: recall a single queued message back into the editor. */
+  const handleRecallQueuedItem = useCallback(async (kind: "steer" | "follow-up", index: number) => {
+    const sid = sessionIdRef.current;
+    if (!sid) return;
+    try {
+      const result = await sendAgentCommand<{
+        recalled?: string | null;
+        steering?: string[];
+        followUp?: string[];
+      }>(sid, { type: "recall_queued", kind: kind === "steer" ? "steer" : "followUp", index });
+      // The command already re-queued the survivors; mirror the authoritative
+      // list locally, since queue_update only arrives over a live SSE stream.
+      setQueuedMessages(normalizeQueuedMessages({
+        steering: result?.steering,
+        followUp: result?.followUp,
+      }));
+      if (result?.recalled) opts.chatInputRef?.current?.prependText(result.recalled);
+    } catch (e) {
+      console.error("Failed to recall a queued message:", e);
+      addNotice({ type: "error", message: "Failed to recall the queued message" });
+    }
+  }, [opts.chatInputRef, addNotice]);
+
   const handleThinkingLevelChange = useCallback(async (level: ThinkingLevelOption) => {
     if (level === "auto") {
       thinkingLevelOverrideRef.current = null;
@@ -3144,6 +3167,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
     handleSend, handleAbort, handleAbortRetry, handleFork, handleNavigate, handleModelChange,
     handleCompact, handleSteer, handleFollowUp, handlePromptWithStreamingBehavior, handleAbortCompaction,
     handleRecallQueue,
+    handleRecallQueuedItem,
     handleBuiltinSlashCommand,
     handleEditContent,
     // Present only while a history edit is pending.

@@ -1174,6 +1174,33 @@ export class AgentSessionWrapper {
         return this.inner.clearQueue();
       }
 
+      case "recall_queued": {
+        // Fork overlay: take ONE queued message back to the editor.
+        //
+        // pi exposes no per-item dequeue — the session mirror and the agent's
+        // PendingMessageQueue only offer clear-all — so this clears and re-adds
+        // the survivors in their original order and kind. What matters is the
+        // outcome: the recalled text is never delivered (it is not re-added),
+        // and the rest cannot be lost or duplicated. The only exposure is
+        // timing: an agent pull landing between the clear and the re-adds
+        // delivers the survivors one pull later.
+        const kind = command.kind === "followUp" ? "followUp" : "steer";
+        const index = Number(command.index);
+        const pending = kind === "steer"
+          ? this.inner.getSteeringMessages()
+          : this.inner.getFollowUpMessages();
+        if (!Number.isInteger(index) || index < 0 || index >= pending.length) {
+          throw new Error("Queued message not found");
+        }
+        const { steering, followUp } = this.inner.clearQueue();
+        const recalled = kind === "steer"
+          ? steering.splice(index, 1)[0]
+          : followUp.splice(index, 1)[0];
+        for (const text of steering) await this.inner.steer(text);
+        for (const text of followUp) await this.inner.followUp(text);
+        return { recalled: recalled ?? null, steering, followUp };
+      }
+
       case "steer": {
         const steerImages = command.images as Array<{ type: "image"; data: string; mimeType: string }> | undefined;
         await this.inner.steer(command.message as string, steerImages?.length ? steerImages : undefined);
