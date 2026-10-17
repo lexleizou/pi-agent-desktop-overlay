@@ -57,7 +57,13 @@ score for them would be fiction.
 overlay/                       New and fork-modified files, by their path in the target checkout
 upstream-file-patches.diff     Block-level edits to upstream-owned files
 PATCHES.md                     Full change log: what changed, why, and what was verified
+scripts/sync-overlay.sh        Refresh overlay/ + the diff from a working checkout
 ```
+
+`overlay/` ships full copies of a few upstream files, and it is applied *after* the diff — so a
+stale copy silently wins, and a brand-new file never shows up in `git diff` at all. Run
+`scripts/sync-overlay.sh <checkout>` and then verify against a clean checkout before pushing; the
+install steps below are that verification.
 
 ## Install
 
