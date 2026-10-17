@@ -175,6 +175,34 @@ composer spacer 同步把聊天滚到底——刚发的问题直接被顶出视�
     `FOLLOWUP-TWO`，队列只剩 STEER-ONE。
 - `npx tsc --noEmit` 通过；`npm test` → **2866 pass / 0 fail**。
 
+第十三期（2026-10-17）：**⌘+ / ⌘- / ⌘0 缩放对话区与左侧导航栏。**
+
+- 来源：Lex 要求上下文窗口和左侧导航栏支持 ⌘加号/减号缩放。
+- 实现（新增 `components/ZoomShortcuts.tsx`，在 `app/layout.tsx` 挂载，渲染 null）：
+  - 对话区走**既有**的聊天字号设置（`useChatAppearance` → `--chat-content-font-size`，即
+    Settings → Chat 的「内容字号」滑杆，12–24px），步进 1px —— 快捷键和滑杆写同一个 store
+    与同一个 localStorage key，所以两边永远一致。
+  - 侧栏走新增的 `--sidebar-scale`（0.9–1.3，步进 0.05，key `pi-sidebar-scale`）：
+    `bui-overlay.css` 在 `.app-sidebar` 作用域内重新声明 `--fs-micro/caption/small/body/title`，
+    只缩放侧栏文字，顶栏与面板保持原尺寸。
+  - 侧栏有两个元素带 **inline** px 字号（项目标题 `.sidebar-header-row > span` 13px、时间
+    `.session-item-time` 11px），token 覆盖不到，已用两条 `!important` 规则单独缩放。
+  - ⌘0 复位两者；⌘= 与 ⌘+ 都接受；按住 ⌥ 不触发；IME 合成中不触发；绑定在捕获阶段并
+    preventDefault，避免 WebView 自行滚动/缩放。
+- 过程中修掉自己一个真 bug：`clampSidebarScale` 用 `Number(value)`，而 `Number(null)` 是 0
+  且 `Number.isFinite(0)` 为真，导致**未设置偏好时会被夹到最小值 0.9**（首测即暴露
+  `--sidebar-scale=0.9`）。已改为先排除 null/空串/非正数。
+- 实测（dev 实例，真实界面）：
+  | 操作 | --chat-content-font-size | --sidebar-scale | 输入框 | 会话标题 | 时间戳 |
+  |---|---|---|---|---|---|
+  | 起始 | 15px | 1.05 | 15 | 13.7 | 11.6 |
+  | ⌘= ×2 | 17px | 1.15 | 17 | 15 | 12.7 |
+  | ⌘- ×4 | 13px | 0.95 | 13 | 12.4 | 10.5 |
+  | ⌘0 | 14px | 1 | 14 | 13 | 11 |
+  两者都写入 localStorage（`pi-chat-content-font-size` / `pi-sidebar-scale`）。侧栏 token
+  作用域评测：51 个文本节点中 31 个随缩放变化，余下的是 inline 字号元素，已由上面两条规则补齐。
+- `npx tsc --noEmit` 通过；`npm test` → 2866 pass / 0 fail。
+
 日期：2026-10-16（六期、七期为 2026-10-17 追加，八、九期为 2026-10-17 追加）
 基线：abcwyc/pi-agent-desktop **v0.7.1**（tag `v0.7.1` = `9519ce4c1c2e504ba1d0aaaddcfed6ea8e49d0b3`；上游 pi-web v0.10.0 合并至
 `6fcd7d4`，该 SHA 是 pi-web 的提交，不是 pi-agent-desktop 的）
