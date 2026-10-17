@@ -101,6 +101,33 @@ composer spacer 同步把聊天滚到底——刚发的问题直接被顶出视�
 - 上游测试 `hooks/useAgentSession.test.mjs` 里断言锚点第三参为 `container.clientHeight`
   的那一条已按新语义更新（改为断言可见高度与 composer 观察），属必要修改。
 
+第十期（2026-10-17）：**运行中也能切换模型；上下文环旁显示整个会话的费用与平均 t/s。**
+
+运行中切换模型：
+- 先实测服务端是否允许。在会话 `isStreaming=true`、`isPromptRunning=true`（正在跑 bash sleep）
+  的时刻 POST `set_model` → **HTTP 200** `{"success":true,...}`，会话文件按顺序写入新的
+  `model_change`；同一轮回复正常结束，无报错。也就是说**服务端本来就接受运行中切换**
+  （`SESSION_REPLACEMENT_COMMAND_TYPES` 只有 fork/clone），被拦住的只是 UI。
+- 于是把 `ChatInput` 里 `ModelSelector` 的 `disabled={isStreaming}` 去掉，新增 `streaming`
+  prop：运行中提示语变为 `Change model · applies from the next message`（在途请求保留原模型，
+  新模型从下一条消息生效）。
+- UI 端到端验证：`sessionBusy=true` 时模型按钮 `disabled=false`、菜单可展开（52 个选项），
+  点选后 `get_state` 与会话文件都变为所选模型，测试会话随后已还原。
+
+会话费用 + 平均 t/s（上下文环右侧）：
+- 数据侧：`lib/session-stats.ts` 新增 `generationMs`（累加 assistant 消息的 `durationMs`），
+  `emptyStats` / `addMessage` / `mergeSessionStats`（按 delta，与 token/cost 同规则）同步；
+  `SessionStatsInfo` 暴露该字段。分母只取**生成耗时**，不含工具执行与等待，才叫平均吞吐。
+- 展示侧：`ContextUsageRing` 在 `48% / 1.0M` 之后追加 `$0.8827 · 59.0 t/s`，样式在
+  bui-overlay.css（`.ctx-session-metrics`，沿用 usage footer 的配色），hover 提示
+  `Session cost $0.8827 · Average 59.0 t/s over 1h14m of generation`。数值取自整个会话文件，
+  不是当前加载的那一页。
+- 实测（本机真实会话）：环旁文本为 `48% / 1.0M | $0.8827 | 59.0 t/s`。
+
+测试：新增 2 条（`generationMs` 聚合、merge 的 delta 语义），另有 2 条上游的 stats 形状
+断言（`returns zeros for an empty session`、`session stats cover the full file...`）按新字段
+更新。`npx tsc --noEmit` 通过；`npm test` → **2866 pass / 0 fail**。
+
 日期：2026-10-16（六期、七期为 2026-10-17 追加，八、九期为 2026-10-17 追加）
 基线：abcwyc/pi-agent-desktop **v0.7.1**（tag `v0.7.1` = `9519ce4c1c2e504ba1d0aaaddcfed6ea8e49d0b3`；上游 pi-web v0.10.0 合并至
 `6fcd7d4`，该 SHA 是 pi-web 的提交，不是 pi-agent-desktop 的）

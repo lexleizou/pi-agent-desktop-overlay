@@ -16,7 +16,7 @@ index e9e3fbb..f111ff0 100644
  
  const notoSansMono = Noto_Sans_Mono({
 diff --git a/components/ChatInput.tsx b/components/ChatInput.tsx
-index 7bb6624..2dcb6d7 100644
+index 7bb6624..e592827 100644
 --- a/components/ChatInput.tsx
 +++ b/components/ChatInput.tsx
 @@ -30,6 +30,8 @@ import { resolveSessionReferences } from "@/lib/session-reference";
@@ -148,6 +148,25 @@ index 7bb6624..2dcb6d7 100644
  
            {isStreaming ? (
              <div style={{ display: "flex", alignItems: "center", gap: 6, flexShrink: 0, alignSelf: "flex-end" }}>
+@@ -3015,13 +3065,16 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
+                 )}
+               </div>
+             )}
+-            {/* Model selector — visible always, disabled during streaming */}
++            {/* Model selector — visible and usable at all times. Switching
++                mid-run is accepted by the server (the in-flight request keeps
++                its model; the change lands on the next one); ModelSelector
++                says so in its tooltip while streaming. */}
+             {(modelOptions.length > 0 || model || modelError) && onModelChange && (
+               <ModelSelector
+                 options={modelOptions}
+                 value={model}
+                 onChange={onModelChange}
+-                disabled={isStreaming}
++                streaming={isStreaming}
+                 busy={modelSwitching}
+                 isAutoSelection={isAutoModelSelection}
+                 defaultValue={defaultModel}
 diff --git a/components/ChatWindow.tsx b/components/ChatWindow.tsx
 index 6911167..7ea740c 100644
 --- a/components/ChatWindow.tsx
@@ -299,10 +318,52 @@ index 6911167..7ea740c 100644
          {(belowEditorWidgets.length > 0 || hasExtensionStatus) && (
            <div className={`extension-status-shelf${belowEditorWidgets.length > 0 ? " has-widgets" : ""}${hasExtensionStatus ? " has-status" : ""}`}>
 diff --git a/components/ContextUsageRing.tsx b/components/ContextUsageRing.tsx
-index 62ebd98..2800861 100644
+index 62ebd98..d61c447 100644
 --- a/components/ContextUsageRing.tsx
 +++ b/components/ContextUsageRing.tsx
-@@ -62,6 +62,12 @@ export function ContextUsageRing({ contextUsage, sessionStats, onOpenStats }: Co
+@@ -1,5 +1,6 @@
+ import { useI18n } from "@/hooks/useI18n";
+ import type { ContextUsage, SessionStatsInfo } from "@/lib/pi-types";
++import { formatElapsed } from "@/lib/usage-footer";
+ 
+ const RING_SIZE = 14;
+ const RING_STROKE = 2;
+@@ -8,6 +9,21 @@ const RING_CIRCUMFERENCE = 2 * Math.PI * RING_RADIUS;
+ /** High-risk red threshold (fixed, Claude-convention). Single accent below it. */
+ const CTX_DANGER_PCT = 90;
+ 
++/** Session cost, sub-cent precise while it is small — same convention as the
++ *  per-turn usage footer. */
++function fmtSessionCost(value: number): string {
++  if (!(value > 0)) return "";
++  return value < 1 ? `$${value.toFixed(4)}` : `$${value.toFixed(2)}`;
++}
++
++/** Average throughput across the session: output tokens per generation second. */
++function fmtAverageTps(outputTokens: number, generationMs: number | undefined): string {
++  if (!(generationMs && generationMs > 0) || !(outputTokens > 0)) return "";
++  const tps = outputTokens / (generationMs / 1000);
++  if (!Number.isFinite(tps) || tps <= 0) return "";
++  return `${tps >= 10 ? tps.toFixed(1) : tps.toFixed(2)} t/s`;
++}
++
+ function fmtWindow(n: number): string {
+   if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`;
+   if (n >= 1_000) return `${(n / 1_000).toFixed(0)}k`;
+@@ -56,12 +72,32 @@ export function ContextUsageRing({ contextUsage, sessionStats, onOpenStats }: Co
+     } else if (percent !== null && windowSize > 0) {
+       tooltipParts[0] += ` / ${fmtWindow(windowSize)}`;
+     }
+-    if (sessionStats && sessionStats.cost > 0) {
+-      tooltipParts.push(`$${sessionStats.cost.toFixed(3)}`);
++    const tooltipCost = sessionStats ? fmtSessionCost(sessionStats.cost) : "";
++    if (tooltipCost) tooltipParts.push(`session ${tooltipCost}`);
++    const tooltipTps = sessionStats
++      ? fmtAverageTps(sessionStats.tokens.output, sessionStats.generationMs)
++      : "";
++    if (tooltipTps) {
++      tooltipParts.push(`avg ${tooltipTps} over ${formatElapsed(sessionStats!.generationMs ?? 0)}`);
+     }
    }
    const title = tooltipParts.length > 0 ? tooltipParts.join(" · ") : t("chat.ctxUsage");
  
@@ -312,10 +373,19 @@ index 62ebd98..2800861 100644
 +    ? `${percent >= 10 ? percent.toFixed(0) : percent.toFixed(1)}% / ${fmtWindow(windowSize)}`
 +    : null;
 +
++  // Session totals, always visible next to the context numbers: cost and the
++  // average throughput over every assistant reply so far. Both come from the
++  // full session file (stats + generationMs), not just the loaded page.
++  const sessionCost = sessionStats ? fmtSessionCost(sessionStats.cost) : "";
++  const sessionTps = sessionStats
++    ? fmtAverageTps(sessionStats.tokens.output, sessionStats.generationMs)
++    : "";
++  const hasSessionMetrics = Boolean(sessionCost || sessionTps);
++
    return (
      <button
        type="button"
-@@ -74,7 +80,7 @@ export function ContextUsageRing({ contextUsage, sessionStats, onOpenStats }: Co
+@@ -74,7 +110,7 @@ export function ContextUsageRing({ contextUsage, sessionStats, onOpenStats }: Co
        }}
        style={{
          display: "flex", alignItems: "center", justifyContent: "center",
@@ -324,7 +394,7 @@ index 62ebd98..2800861 100644
          background: "none", border: "none", borderRadius: 9,
          cursor: hasUsage ? "pointer" : "default",
          transition: "background 0.12s, opacity 0.12s",
-@@ -103,6 +109,17 @@ export function ContextUsageRing({ contextUsage, sessionStats, onOpenStats }: Co
+@@ -103,6 +139,31 @@ export function ContextUsageRing({ contextUsage, sessionStats, onOpenStats }: Co
            opacity={percent === null ? 0.35 : 1}
          />
        </svg>
@@ -337,6 +407,20 @@ index 62ebd98..2800861 100644
 +          whiteSpace: "nowrap",
 +        }}>
 +          {inlineLabel}
++        </span>
++      )}
++      {hasSessionMetrics && (
++        <span
++          className="ctx-session-metrics"
++          title={[
++            sessionCost ? `Session cost ${sessionCost}` : "",
++            sessionStats
++              ? `Average ${sessionTps || "—"} over ${formatElapsed(sessionStats.generationMs ?? 0)} of generation`
++              : "",
++          ].filter(Boolean).join(" · ")}
++        >
++          {sessionCost && <span className="is-cost">{sessionCost}</span>}
++          {sessionTps && <span className="is-tps">{sessionTps}</span>}
 +        </span>
 +      )}
      </button>
@@ -412,13 +496,36 @@ index 21cfa70..c16420e 100644
    return parts.join(" · ");
  }
 diff --git a/components/ModelSelector.tsx b/components/ModelSelector.tsx
-index 1bd1843..8b5404a 100644
+index 1bd1843..692c07a 100644
 --- a/components/ModelSelector.tsx
 +++ b/components/ModelSelector.tsx
-@@ -91,6 +91,20 @@ export function ModelSelector({
+@@ -21,6 +21,8 @@ interface ModelSelectorProps {
+   selectedLabel?: string;
+   disabled?: boolean;
+   busy?: boolean;
++  /** True while a reply is streaming: the change applies from the next message. */
++  streaming?: boolean;
+   isAutoSelection?: boolean;
+   ariaLabel?: string;
+   variant?: "toolbar" | "field";
+@@ -60,6 +62,7 @@ export function ModelSelector({
+   selectedLabel,
+   disabled = false,
+   busy = false,
++  streaming = false,
+   isAutoSelection = false,
+   ariaLabel,
+   variant = "toolbar",
+@@ -90,6 +93,25 @@ export function ModelSelector({
+     ? sortedOptions.find((option) => option.modelId === value.modelId && option.provider === value.provider)?.name ?? value.modelId
      : emptyLabel ?? (sortedOptions.length > 0 ? "Select model" : "No models"));
    const buttonTitle = busy ? "Switching model" : locked ? currentName : sortedOptions.length > 0 || onClear ? "Change model" : "No available models";
- 
++  // A switch made mid-run cannot rewrite the request already in flight; be
++  // explicit about it instead of silently appearing not to work.
++  const effectiveTitle = streaming
++    ? `${buttonTitle} · applies from the next message`
++    : buttonTitle;
++
 +  // Progressive menu (user request): provider list first, models on drill-in.
 +  // Single-provider setups and active filters keep the flat grouped list —
 +  // a cascade with one provider is just an extra click.
@@ -432,11 +539,10 @@ index 1bd1843..8b5404a 100644
 +    // provider list; the current selection is badged there instead.
 +    setOpenProvider(null);
 +  }, [open, cascadeEnabled]);
-+
+ 
    useEffect(() => {
      const handleOutsideClick = (event: MouseEvent) => {
-       if (
-@@ -135,7 +149,8 @@ export function ModelSelector({
+@@ -135,7 +157,8 @@ export function ModelSelector({
          justifyContent: isMobile ? "flex-start" : undefined,
          gap: 6,
          width: isMobile ? "100%" : undefined,
@@ -446,7 +552,7 @@ index 1bd1843..8b5404a 100644
          height: 32,
          padding: isMobile ? "8px 10px" : "8px 12px",
          overflow: "hidden",
-@@ -153,12 +168,14 @@ export function ModelSelector({
+@@ -153,12 +176,14 @@ export function ModelSelector({
      const active = option.modelId === value?.modelId && option.provider === value?.provider;
      setOpen(false);
      setFilter("");
@@ -461,7 +567,22 @@ index 1bd1843..8b5404a 100644
      onSetDefault?.(option.provider, option.modelId);
    };
  
-@@ -297,6 +314,7 @@ export function ModelSelector({
+@@ -177,12 +202,12 @@ export function ModelSelector({
+     >
+       <button
+         type="button"
+-        aria-label={ariaLabel ?? buttonTitle}
++        aria-label={ariaLabel ?? effectiveTitle}
+         aria-haspopup="listbox"
+         aria-expanded={open}
+         aria-busy={busy || undefined}
+         disabled={locked}
+-        title={buttonTitle}
++        title={effectiveTitle}
+         style={buttonStyle}
+         onClick={(event) => {
+           const rect = event.currentTarget.getBoundingClientRect();
+@@ -297,6 +322,7 @@ export function ModelSelector({
                  <SelectorRow active={!value} gutter={Boolean(onSetDefault)} onSelect={() => {
                    setOpen(false);
                    setFilter("");
@@ -469,7 +590,7 @@ index 1bd1843..8b5404a 100644
                    onClear();
                  }}>
                    <OptionLabel label={emptyLabel ?? "Default"} />
-@@ -306,32 +324,85 @@ export function ModelSelector({
+@@ -306,32 +332,85 @@ export function ModelSelector({
                  <div style={{ padding: "8px 12px", color: "var(--text-dim)", fontSize: 12, whiteSpace: "nowrap" }}>
                    {filter.trim() ? t("chat.noMatchingModels") : "No available models"}
                  </div>
@@ -685,6 +806,19 @@ index 8b60425..cb0d4f9 100644
      isAutoModelSelection: isNew && newSessionModel === null,
      isAutoThinkingSelection: isNew && newSessionThinkingLevel === null,
      defaultModel: newSessionDefaultModel,
+diff --git a/lib/pi-types.ts b/lib/pi-types.ts
+index e4ac3ca..ec12775 100644
+--- a/lib/pi-types.ts
++++ b/lib/pi-types.ts
+@@ -57,6 +57,8 @@ export interface SessionStatsInfo {
+     total: number;
+   };
+   cost: number;
++  /** Summed generation time of assistant replies, for a session-average t/s. */
++  generationMs?: number;
+   contextUsage?: ContextUsage;
+   /** Estimated active time across all entries in the session file. */
+   totalActiveMs?: number;
 diff --git a/lib/rpc-manager.ts b/lib/rpc-manager.ts
 index a50d391..e55d448 100644
 --- a/lib/rpc-manager.ts
@@ -718,6 +852,108 @@ index a50d391..e55d448 100644
            routedModel: this.getRoutedModel(),
            cacheWarming: this.getCacheWarming(),
          };
+diff --git a/lib/session-reader.pagination.test.mjs b/lib/session-reader.pagination.test.mjs
+index 49fbe2a..fda8d50 100644
+--- a/lib/session-reader.pagination.test.mjs
++++ b/lib/session-reader.pagination.test.mjs
+@@ -207,6 +207,7 @@ test("session stats cover the full file independently of the displayed tail", ()
+     totalMessages: 100,
+     tokens: { input: 11, output: 22, cacheRead: 33, cacheWrite: 44, total: 110 },
+     cost: 2,
++    generationMs: 0,
+   });
+   // The breakdown covers the same full file, so it adds up to the total cost.
+   assert.equal(costBreakdown.reduce((sum, entry) => sum + entry.cost, 0), 2);
+diff --git a/lib/session-stats.test.mjs b/lib/session-stats.test.mjs
+index 8955641..49685d1 100644
+--- a/lib/session-stats.test.mjs
++++ b/lib/session-stats.test.mjs
+@@ -133,10 +133,44 @@ test("returns zeros for an empty session", () => {
+     totalMessages: 0,
+     tokens: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
+     cost: 0,
++    generationMs: 0,
+     costBreakdown: [],
+   });
+ });
+ 
++test("sums assistant generation time so the UI can average throughput", () => {
++  const withDuration = (id, parentId, durationMs) => {
++    const entry = assistantEntry(id, parentId, [{ type: "text", text: "ok" }], usage());
++    if (durationMs !== undefined) entry.message.durationMs = durationMs;
++    return entry;
++  };
++  const stats = computeSessionStats([
++    userEntry("u1", null),
++    withDuration("a1", "u1", 2000),
++    userEntry("u2", "a1"),
++    withDuration("a2", "u2", 3000),
++    // A reply without a recorded duration must contribute 0, not NaN.
++    withDuration("a3", "a2", undefined),
++  ]);
++  assert.equal(stats.generationMs, 5000);
++  assert.equal(stats.tokens.output, 15);
++});
++
++test("mergeSessionStats carries generation time from the file and the live tail", () => {
++  // The file already accounted for 1000ms at load time; the live tail has
++  // grown to 2500ms, so the merge adds only the 1500ms delta — the same rule
++  // the token and cost counters follow.
++  const loadedA = assistantEntry("a-live", null, [{ type: "text", text: "ok" }], usage());
++  loadedA.message.durationMs = 1000;
++  const liveA = assistantEntry("a-live", null, [{ type: "text", text: "ok" }], usage());
++  liveA.message.durationMs = 2500;
++  const file = { ...computeSessionStats([]), generationMs: 4000, costBreakdown: [] };
++  // mergeSessionStats takes unwrapped AgentMessages (what the hook passes),
++  // not session entries.
++  const merged = mergeSessionStats(file, [loadedA.message], [liveA.message]);
++  assert.equal(merged.generationMs, 5500);
++});
++
+ test("full-file stats never shrink relative to the post-compaction context", () => {
+   const entries = [
+     userEntry("u1", null),
+diff --git a/lib/session-stats.ts b/lib/session-stats.ts
+index 27eb1a3..6554913 100644
+--- a/lib/session-stats.ts
++++ b/lib/session-stats.ts
+@@ -15,6 +15,9 @@ export interface SessionFileStats {
+     total: number;
+   };
+   cost: number;
++  /** Wall-clock generation time summed over assistant replies. Lets the UI show
++   *  a session-average throughput instead of only the last turn's. */
++  generationMs: number;
+   /** Cost per model that answered, as pi's `/session` lists it (lib/usage-breakdown.ts). */
+   costBreakdown?: UsageCostBreakdownEntry[];
+ }
+@@ -28,6 +31,7 @@ function emptyStats(): SessionFileStats {
+     totalMessages: 0,
+     tokens: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
+     cost: 0,
++    generationMs: 0,
+   };
+ }
+ 
+@@ -54,6 +58,10 @@ function addMessage(stats: SessionFileStats, message: SessionMessage): void {
+     if (Array.isArray(message.content)) {
+       stats.toolCalls += message.content.filter((c) => c.type === "toolCall").length;
+     }
++    // Only assistant replies carry a duration; tool results and prompts do not,
++    // so this stays "time spent generating", which is the honest denominator
++    // for an average throughput.
++    stats.generationMs += message.durationMs ?? 0;
+     addUsage(stats, message.usage);
+   }
+ }
+@@ -98,6 +106,7 @@ export function mergeSessionStats(
+     totalMessages: fileStats.totalMessages + delta(current.totalMessages, loaded.totalMessages),
+     tokens,
+     cost: fileStats.cost + delta(current.cost, loaded.cost),
++    generationMs: (fileStats.generationMs ?? 0) + delta(current.generationMs, loaded.generationMs),
+     costBreakdown,
+   };
+ }
 diff --git a/lib/types.ts b/lib/types.ts
 index 5906c8b..03a27f9 100644
 --- a/lib/types.ts

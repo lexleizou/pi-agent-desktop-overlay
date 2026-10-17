@@ -744,3 +744,33 @@ html.dark,
     transition: none;
   }
 }
+
+/* ==========================================================================
+   Session metrics beside the context ring (ContextUsageRing)
+   Cost + session-average throughput, mirroring the per-turn usage footer's
+   palette so the two read as the same instrument.
+   ========================================================================== */
+
+.ctx-session-metrics {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 6px;
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.ctx-session-metrics .is-cost {
+  color: #c2410c;
+  font-weight: 600;
+}
+
+.ctx-session-metrics .is-tps {
+  color: var(--text-dim);
+}
+
+html.dark .ctx-session-metrics .is-cost,
+[data-theme="dark"] .ctx-session-metrics .is-cost,
+[data-theme="pine"] .ctx-session-metrics .is-cost {
+  color: #ff8a7a;
+}

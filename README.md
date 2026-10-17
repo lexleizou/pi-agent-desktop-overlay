@@ -15,8 +15,8 @@ across files, no upstream line is rewritten, and every mount point is an indepen
 | **Ghost text** | Prefix-matched completion while typing, shown as a `Tab` hint beside the composer. Tab accepts. No model call — matched against your input history. |
 | **Task panel** | A task list pinned to the chat area's top-right corner, driven by the `todo` tool: completion rail, per-row status badges, expandable long rows, live `Working · Ns` while a turn runs. Resizable (drag the left edge), collapsible, and closable; the state is remembered. It only opens as a card when the card actually fits in the gutter beside the message column — otherwise, and while the question is pinned to the top of the chat, it stays a small pill so an automatic popup cannot cover the text. No polling — state is replayed from the session branch. |
 | **Usage footer** | Per-turn `Tokens: total(in/out/cache) | Cache Hit N% | TPS | Elapsed | Cost`, with threshold-based colouring. |
-| **Context ring** | Always-visible `pct% / window` beside the context-usage ring. |
-| **Model selector** | Full model names (no 220px truncation) and a two-level provider → model menu. |
+| **Context ring** | Always-visible `pct% / window` beside the context-usage ring, followed by the whole session's cost and average throughput (`$0.88 · 59.0 t/s`). Both totals come from the full session file, not the loaded page. |
+| **Model selector** | Full model names (no 220px truncation) and a two-level provider → model menu. Usable **while a reply is streaming** — the in-flight request keeps its model and the switch lands on the next message, which the tooltip says out loud. |
 
 ## Two upstream behaviours this overlay fixes
 

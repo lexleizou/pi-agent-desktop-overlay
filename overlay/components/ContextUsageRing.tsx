@@ -1,5 +1,6 @@
 import { useI18n } from "@/hooks/useI18n";
 import type { ContextUsage, SessionStatsInfo } from "@/lib/pi-types";
+import { formatElapsed } from "@/lib/usage-footer";
 
 const RING_SIZE = 14;
 const RING_STROKE = 2;
@@ -7,6 +8,21 @@ const RING_RADIUS = (RING_SIZE - RING_STROKE) / 2;
 const RING_CIRCUMFERENCE = 2 * Math.PI * RING_RADIUS;
 /** High-risk red threshold (fixed, Claude-convention). Single accent below it. */
 const CTX_DANGER_PCT = 90;
+
+/** Session cost, sub-cent precise while it is small — same convention as the
+ *  per-turn usage footer. */
+function fmtSessionCost(value: number): string {
+  if (!(value > 0)) return "";
+  return value < 1 ? `$${value.toFixed(4)}` : `$${value.toFixed(2)}`;
+}
+
+/** Average throughput across the session: output tokens per generation second. */
+function fmtAverageTps(outputTokens: number, generationMs: number | undefined): string {
+  if (!(generationMs && generationMs > 0) || !(outputTokens > 0)) return "";
+  const tps = outputTokens / (generationMs / 1000);
+  if (!Number.isFinite(tps) || tps <= 0) return "";
+  return `${tps >= 10 ? tps.toFixed(1) : tps.toFixed(2)} t/s`;
+}
 
 function fmtWindow(n: number): string {
   if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`;
@@ -56,8 +72,13 @@ export function ContextUsageRing({ contextUsage, sessionStats, onOpenStats }: Co
     } else if (percent !== null && windowSize > 0) {
       tooltipParts[0] += ` / ${fmtWindow(windowSize)}`;
     }
-    if (sessionStats && sessionStats.cost > 0) {
-      tooltipParts.push(`$${sessionStats.cost.toFixed(3)}`);
+    const tooltipCost = sessionStats ? fmtSessionCost(sessionStats.cost) : "";
+    if (tooltipCost) tooltipParts.push(`session ${tooltipCost}`);
+    const tooltipTps = sessionStats
+      ? fmtAverageTps(sessionStats.tokens.output, sessionStats.generationMs)
+      : "";
+    if (tooltipTps) {
+      tooltipParts.push(`avg ${tooltipTps} over ${formatElapsed(sessionStats!.generationMs ?? 0)}`);
     }
   }
   const title = tooltipParts.length > 0 ? tooltipParts.join(" · ") : t("chat.ctxUsage");
@@ -67,6 +88,15 @@ export function ContextUsageRing({ contextUsage, sessionStats, onOpenStats }: Co
   const inlineLabel = showTooltip && percent !== null && windowSize > 0
     ? `${percent >= 10 ? percent.toFixed(0) : percent.toFixed(1)}% / ${fmtWindow(windowSize)}`
     : null;
+
+  // Session totals, always visible next to the context numbers: cost and the
+  // average throughput over every assistant reply so far. Both come from the
+  // full session file (stats + generationMs), not just the loaded page.
+  const sessionCost = sessionStats ? fmtSessionCost(sessionStats.cost) : "";
+  const sessionTps = sessionStats
+    ? fmtAverageTps(sessionStats.tokens.output, sessionStats.generationMs)
+    : "";
+  const hasSessionMetrics = Boolean(sessionCost || sessionTps);
 
   return (
     <button
@@ -118,6 +148,20 @@ export function ContextUsageRing({ contextUsage, sessionStats, onOpenStats }: Co
           whiteSpace: "nowrap",
         }}>
           {inlineLabel}
+        </span>
+      )}
+      {hasSessionMetrics && (
+        <span
+          className="ctx-session-metrics"
+          title={[
+            sessionCost ? `Session cost ${sessionCost}` : "",
+            sessionStats
+              ? `Average ${sessionTps || "—"} over ${formatElapsed(sessionStats.generationMs ?? 0)} of generation`
+              : "",
+          ].filter(Boolean).join(" · ")}
+        >
+          {sessionCost && <span className="is-cost">{sessionCost}</span>}
+          {sessionTps && <span className="is-tps">{sessionTps}</span>}
         </span>
       )}
     </button>
