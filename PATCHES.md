@@ -253,6 +253,22 @@ composer spacer 同步把聊天滚到底——刚发的问题直接被顶出视�
   内建扩展顺序的测试无需改动；`components/SettingsPanel.test.mjs` 的聊天选项计数按实际从 6 改为 7。
 - `npx tsc --noEmit` 通过；`npm test` → **2872 pass / 0 fail**（2866 + 新增 6）。
 
+第十六期（2026-10-17）：**建议卡回到流内——撤销第九期的浮动做法（它挡住了正文）。**
+
+- 来源：Lex 反馈「followup 把上下文窗口的文字都遮住了」，截图里建议卡直接压在消息上。
+- 复盘：第九期为了不让回合结束时 composer 从 141px 涨到 292px（并因此把刚发的问题顶出视口），
+  把建议卡改成了 `position: absolute; bottom: 100%` 浮在 composer 上方。代价就是它悬在正文之上。
+  **挡住文字比内容位移更糟**，而且第九期的另一半改动（锚点按可见高度测量）已经修掉了位移的
+  主因，第十四期的提问置顶条又补上了「滚出视野时仍能看到问题」的兜底。
+- 改法：`.suggestion-chips.bui-card` 去掉 absolute/left/right/bottom，恢复 `margin: 0 auto 8px`
+  的流内布局；其余（入场动效、卡片样式、点击只填入不发送）不变。composer 高度重新包含卡片，
+  composer spacer 照旧镜像它，所以正文永远不会被压在下面。
+- 实测（dev 实例，回合刚结束、建议卡在场）：
+  - `position: static`、卡片高 143px、位于最后一条消息（含 usage 行）**下方**；
+  - 遍历滚动容器内所有 `[data-entry-id]`，与卡片矩形相交的数量 = **0**（此前浮动态会命中）；
+  - 最后一条用户消息仍在视口内，置顶条未触发（符合预期）。
+- `npx tsc --noEmit` 通过；`npm test` → **2872 pass / 0 fail**。
+
 日期：2026-10-16（六期、七期为 2026-10-17 追加，八、九期为 2026-10-17 追加）
 基线：abcwyc/pi-agent-desktop **v0.7.1**（tag `v0.7.1` = `9519ce4c1c2e504ba1d0aaaddcfed6ea8e49d0b3`；上游 pi-web v0.10.0 合并至
 `6fcd7d4`，该 SHA 是 pi-web 的提交，不是 pi-agent-desktop 的）

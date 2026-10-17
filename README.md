@@ -141,6 +141,7 @@ the measurements behind each one.
 
 | # | Change |
 |---|---|
+| 16 | **The suggestion card is back in the composer's flow.** Phase 9 floated it above the composer to stop a turn ending from resizing that area — but floating put it on top of the transcript, and covering the text is worse than moving it. The scroll side is already handled by the phase-9 anchor fix and the phase-14 pinned prompt. |
 | 15 | **Reply language** — Settings → Chat gains *model default / force Simplified Chinese / force English*. A `before_agent_start` handler appends the directive to the system prompt of every run, which is the only place an instruction outranks both the model's habits and `AGENTS.md`; the value travels with each prompt, so a change applies from the next message without reopening the session. |
 | 14 | **Pinned prompt** — the prompt being answered stays visible at the top of the chat as a sticky one-line bar, expandable, with a jump back to the message. It yields while the real message is on screen, so nothing is shown twice and nothing shifts while scrolling. |
 | 13 | **`⌘+` / `⌘−` / `⌘0` zoom** — one chord drives the conversation's font size (the same setting as the Settings slider) and the sidebar's own scale, scoped so the rest of the chrome keeps its sizes. Both persist; `⌘0` restores the defaults. |
