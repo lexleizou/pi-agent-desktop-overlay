@@ -128,6 +128,24 @@ composer spacer 同步把聊天滚到底——刚发的问题直接被顶出视�
 断言（`returns zeros for an empty session`、`session stats cover the full file...`）按新字段
 更新。`npx tsc --noEmit` 通过；`npm test` → **2866 pass / 0 fail**。
 
+第十一期（2026-10-17）：**回合结束后，工具调用收敛成 footer 里的一行摘要，点击展开还原。**
+
+- 来源：Lex 指出一屏里成片的绿色工具行（`bash …` 24s）太占地方，问能不能在回合结束后
+  收成 footer 里的一句 summary、点开再还原。
+- 实现（`components/MessageView.tsx`，块状新增）：`AssistantMessageView` 里统计本回合的
+  toolCall 块，`!isStreaming` 且数量 ≥2 时不渲染这些块，改为在 `.message-assistant-footer`
+  里渲染一行 `⚙ 2 tool calls · bash ×2  44s  ⌄`（沿用 beautifului `ToolChips` 的思路）；
+  点击切回逐行原样，与既有 usage footer 并排，视觉上是一行仪表。
+- 阈值取 **2**：单个工具调用本身就是一行摘要，折起来只是多一次点击；同时这让 4 条既有
+  上游渲染测试（subagent 工具行、apply_patch 报错、tool-result 图片、codemode 折叠）
+  无需改动即可继续覆盖“展开态”的渲染。
+- 细节：命中搜索的 toolCall 不会被折叠（否则搜索结果会消失）；初始化尊重既有的
+  `isToolCallExpanded(toolCallId)` 持久化偏好，用户此前展开过的回合不会被强行折起；
+  流式进行中不折叠，进度照旧可见。
+- 实测（dev 实例真实会话）：折叠态该消息块高 **102px**、展开态 **183px**（+81px 即两行
+  工具行），摘要文本 `⚙ 2 tool calls · bash ×2 44s ⌄`，`aria-expanded` 随点击翻转。
+- `npx tsc --noEmit` 通过；`npx eslint` 0；`npm test` → **2866 pass / 0 fail**。
+
 日期：2026-10-16（六期、七期为 2026-10-17 追加，八、九期为 2026-10-17 追加）
 基线：abcwyc/pi-agent-desktop **v0.7.1**（tag `v0.7.1` = `9519ce4c1c2e504ba1d0aaaddcfed6ea8e49d0b3`；上游 pi-web v0.10.0 合并至
 `6fcd7d4`，该 SHA 是 pi-web 的提交，不是 pi-agent-desktop 的）

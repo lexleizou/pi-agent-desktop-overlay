@@ -624,6 +624,14 @@ function UserMessageView({ message, cwd, onOpenFile, entryId, onFork, forking, o
   );
 }
 
+/**
+ * Fork overlay: a completed turn's tool calls fold into one summary row in the
+ * turn footer (beautifului.dev's ToolChips idea). Two is the threshold: one
+ * row on its own already reads as a summary, and folding it would just add a
+ * click without removing noise.
+ */
+const TOOL_SUMMARY_MIN = 2;
+
 function AssistantMessageView({
   message,
   isStreaming,
@@ -721,6 +729,37 @@ function AssistantMessageView({
     }
     return map;
   }, [toolResults, message.timestamp]);
+
+  // Fork overlay (2026-10-17): once a turn has finished, its tool calls are
+  // folded into one summary row in the footer; clicking it restores the exact
+  // rows. While the turn streams they stay visible — that is the live progress.
+  const toolCallItems = useMemo(
+    () => blockItems.filter(({ block }) => block.type === "toolCall"),
+    [blockItems],
+  );
+  const [toolCallsExpanded, setToolCallsExpanded] = useState(() => toolCallItems.some(
+    ({ block }) => isToolCallExpanded((block as ToolCallContent).toolCallId),
+  ));
+  const toolCallSummary = useMemo(() => {
+    if (toolCallItems.length < TOOL_SUMMARY_MIN) return null;
+    const counts = new Map<string, number>();
+    let seconds = 0;
+    for (const { block } of toolCallItems) {
+      const call = block as ToolCallContent;
+      const name = call.toolName || "tool";
+      counts.set(name, (counts.get(name) ?? 0) + 1);
+      seconds += toolCallDurations.get(call.toolCallId) ?? 0;
+    }
+    const detail = [...counts.entries()]
+      .map(([name, count]) => (count > 1 ? `${name} ×${count}` : name))
+      .join(", ");
+    return { count: toolCallItems.length, detail, seconds };
+  }, [toolCallItems, toolCallDurations]);
+  // A search hit inside a folded tool call must not stay hidden.
+  const toolCallSearchTarget = toolCallItems.some(({ block }) => block === searchBlock);
+  const collapseToolCalls = Boolean(
+    toolCallSummary && !isStreaming && !toolCallsExpanded && !toolCallSearchTarget,
+  );
 
   const textContent = blocks
     .filter((b): b is TextContent => b.type === "text")
@@ -843,7 +882,9 @@ function AssistantMessageView({
 
       <div className="message-assistant-content" style={{ display: "flex", flexDirection: "column", gap: 8 }}>
         {blockItems.map(({ block, originalIndex }) => (
+          collapseToolCalls && block.type === "toolCall" ? null : (
           <BlockView key={`${entryId ?? "stream"}-${originalIndex}`} block={block} searchTarget={block === searchBlock} toolResults={toolResults} isStreaming={isStreaming} streamingDuration={streamingDurations.get(originalIndex) ?? (block.type === "thinking" ? thinkingDurationFromFile : undefined)} toolCallDurations={toolCallDurations} cwd={cwd} onOpenFile={onOpenFile} onOpenSession={onOpenSession} sessionId={sessionId} entryId={entryId} blockIndex={originalIndex} />
+          )
         ))}
       </div>
 
@@ -919,6 +960,24 @@ function AssistantMessageView({
       <div className="message-assistant-footer" style={{
         display: "flex", alignItems: "center", gap: 8, marginTop: 4,
       }}>
+        {toolCallSummary && !isStreaming && (
+          <button
+            type="button"
+            className={`tool-call-summary${toolCallsExpanded ? " is-expanded" : ""}`}
+            aria-expanded={toolCallsExpanded}
+            onClick={() => setToolCallsExpanded((previous) => !previous)}
+            title={toolCallsExpanded ? "Hide tool calls" : "Show tool calls"}
+          >
+            <span className="tool-call-summary-glyph" aria-hidden="true">⚙</span>
+            <span className="tool-call-summary-text">
+              {toolCallSummary.count} tool call{toolCallSummary.count === 1 ? "" : "s"} · {toolCallSummary.detail}
+            </span>
+            {toolCallSummary.seconds > 0 && (
+              <span className="tool-call-summary-duration">{toolCallSummary.seconds}s</span>
+            )}
+            <span className="tool-call-summary-caret" aria-hidden="true">⌄</span>
+          </button>
+        )}
         {message.usage && !isStreaming && (
           <UsageFooter usage={message.usage} durationMs={message.durationMs} />
         )}

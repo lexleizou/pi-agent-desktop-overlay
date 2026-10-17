@@ -774,3 +774,78 @@ html.dark .ctx-session-metrics .is-cost,
 [data-theme="pine"] .ctx-session-metrics .is-cost {
   color: #ff8a7a;
 }
+
+/* ==========================================================================
+   Tool-call summary (components/MessageView.tsx, fork overlay)
+   A finished turn's tool calls fold into one row in the turn footer; clicking
+   restores the exact rows. Deliberately built from the footer's own recipe
+   (small, muted, ghost fill) so summary + usage line read as one instrument.
+   ========================================================================== */
+
+.tool-call-summary {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  max-width: 100%;
+  min-height: 22px;
+  padding: 2px 8px;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  background: var(--cds-fill-ghost-hover, rgba(0, 0, 0, 0.04));
+  color: var(--text-dim);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+  line-height: 1.6;
+  cursor: pointer;
+  transition: background 120ms var(--bui-ease-out), color 120ms var(--bui-ease-out),
+              border-color 120ms var(--bui-ease-out);
+}
+
+.tool-call-summary:hover {
+  background: var(--bui-hover);
+  color: var(--bui-ink-2);
+  border-color: var(--bui-line);
+}
+
+.tool-call-summary:focus-visible {
+  outline: 1.5px solid var(--bui-accent);
+  outline-offset: 1px;
+}
+
+.tool-call-summary-glyph {
+  flex: none;
+  color: var(--bui-accent);
+  font-size: 11px;
+  line-height: 1;
+}
+
+.tool-call-summary-text {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-family: var(--font-mono, ui-monospace, monospace);
+}
+
+.tool-call-summary-duration {
+  flex: none;
+  opacity: 0.75;
+}
+
+.tool-call-summary-caret {
+  flex: none;
+  font-size: 10px;
+  line-height: 1;
+  transition: transform 160ms var(--bui-ease-out-strong);
+}
+
+.tool-call-summary.is-expanded .tool-call-summary-caret {
+  transform: rotate(180deg);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .tool-call-summary,
+  .tool-call-summary-caret {
+    transition: none;
+  }
+}
