@@ -15,9 +15,12 @@ across files, no upstream line is rewritten, and every mount point is an indepen
 | **Ghost text** | Prefix-matched completion while typing, shown as a `Tab` hint beside the composer. Tab accepts. No model call — matched against your input history. |
 | **Task panel** | A task list pinned to the chat area's top-right corner, driven by the `todo` tool: completion rail, per-row status badges, expandable long rows, live `Working · Ns` while a turn runs. Resizable (drag the left edge), collapsible, and closable; the state is remembered. It only opens as a card when the card actually fits in the gutter beside the message column — otherwise, and while the question is pinned to the top of the chat, it stays a small pill so an automatic popup cannot cover the text. No polling — state is replayed from the session branch. |
 | **Tool-call summary** | Once a turn finishes, its tool calls fold into one row in the turn footer — `⚙ 2 tool calls · bash ×2  44s  ⌄` — beside the per-turn usage line. Clicking restores the exact rows. Turns with a single tool call keep their row; a search hit inside a folded call forces it open. |
-| **Usage footer** | Per-turn `Tokens: total(in/out/cache) | Cache Hit N% | TPS | Elapsed | Cost`, with threshold-based colouring. |
+| **Usage footer** | Per-turn `Tokens: total(in/out/cache) \| Cache Hit N% \| TPS \| Elapsed \| Cost`, with threshold-based colouring. |
 | **Context ring** | Always-visible `pct% / window` beside the context-usage ring, followed by the whole session's cost and average throughput (`$0.88 · 59.0 t/s`). Both totals come from the full session file, not the loaded page. |
 | **Model selector** | Full model names (no 220px truncation) and a two-level provider → model menu. Usable **while a reply is streaming** — the in-flight request keeps its model and the switch lands on the next message, which the tooltip says out loud. |
+| **Pinned prompt** | The message currently being answered stays at the top of the chat as a sticky one-line bar — expandable, with a jump back to the message itself. It hides while the real message is on screen, so the text never appears twice. |
+| **Zoom** | `⌘+` / `⌘−` / `⌘0` scale the conversation and the left sidebar: the shortcut drives the same chat font-size setting as the Settings → Chat slider (12–24px) plus a sidebar-only scale (`0.9`–`1.3`, scoped to `.app-sidebar`, so the rest of the chrome keeps its own sizes). Both persist. |
+| **Reply language** | Settings → Chat chooses **model default**, **force Simplified Chinese** or **force English**. The directive is appended to the system prompt of every run, so it outranks the model's own habits and `AGENTS.md`; the choice travels with each prompt, so switching applies from the next message — including in sessions that are already open. |
 
 ## Two upstream behaviours this overlay fixes
 
@@ -92,12 +95,12 @@ cp -R /path/to/overlay/. .
 # 3. Verify
 npm install
 npx tsc --noEmit
-npm test                    # expect 2864 passing
+npm test                    # expect 2872 passing
 ```
 
 The last two steps are the ones that matter: if `tsc` and `npm test` both come back clean,
 the overlay applied correctly. Both were re-run on a clean worktree of `v0.7.1` for the
-current revision — `tsc --noEmit` clean, **2864 tests passing, 0 failing**.
+current revision — `tsc --noEmit` clean, **2872 tests passing, 0 failing**.
 
 ### Building the desktop app
 
@@ -128,6 +131,36 @@ This overlay touches two kinds of files, and they need different handling:
 
 `PATCHES.md` lists the exact set of both, plus the upstream files that should be registered as
 fork-owned in `scripts/fork-ownership.json`.
+
+## Changelog
+
+Installment numbers match [PATCHES.md](PATCHES.md), which carries the reasoning, the trade-offs and
+the measurements behind each one.
+
+### 2026-10-17
+
+| # | Change |
+|---|---|
+| 15 | **Reply language** — Settings → Chat gains *model default / force Simplified Chinese / force English*. A `before_agent_start` handler appends the directive to the system prompt of every run, which is the only place an instruction outranks both the model's habits and `AGENTS.md`; the value travels with each prompt, so a change applies from the next message without reopening the session. |
+| 14 | **Pinned prompt** — the prompt being answered stays visible at the top of the chat as a sticky one-line bar, expandable, with a jump back to the message. It yields while the real message is on screen, so nothing is shown twice and nothing shifts while scrolling. |
+| 13 | **`⌘+` / `⌘−` / `⌘0` zoom** — one chord drives the conversation's font size (the same setting as the Settings slider) and the sidebar's own scale, scoped so the rest of the chrome keeps its sizes. Both persist; `⌘0` restores the defaults. |
+| 12 | **Per-message recall** — every queued message gets its own "recall to input"; the header action is relabelled "recall all" so the two are distinguishable. |
+| 11 | **Tool-call summary** — a finished turn's tool calls fold into one row in the footer; clicking restores them. |
+| 10 | **Model switching while a reply streams** (it lands on the next message), and the session's cost + average throughput beside the context ring. |
+| 9 | The just-sent message is no longer pushed out of view — the prompt-anchor spacer was sized against the full container while the composer is an overlay on top of it; and the task panel gains resize / collapse / close without covering the question. |
+| 8 | Ghost text rebuilt (no caret measurement, recomputed from the draft value) and the suggestion card + task panel redesigned with beautifului.dev's elements. |
+| 7 | Follow-up suggestions actually work: the engine called `completeSimple`, whose credential table has no entry for a custom local provider; it now uses the session's own `streamFunction`. |
+| 6 | The phase-3 Co-Work panel was reverted; the pi-todos panel is the single task surface. |
+
+### 2026-10-16
+
+| # | Change |
+|---|---|
+| 5 | Task panel became a floating card in the chat's top-right corner; usage line restyled; `get_state` exposes `piTodos`. |
+| 4 | Streaming t/s badge contrast; context usage always visible as `pct% / window`; cache-hit % and average t/s added to the usage line. |
+| 3 | Co-Work panel; model selector shows full names with a provider → model cascade. |
+| 2 | Ghost text: inline history-prefix completion, Tab accepts. |
+| 1 | Follow-up suggestions: 2–3 next prompts after a turn; clicking one fills the composer without sending. |
 
 ## License
 
