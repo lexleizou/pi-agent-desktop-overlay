@@ -41,6 +41,7 @@ import { isImeComposing } from "@/lib/ime";
 import { assignMessageKeys, createMessageKeyTracker } from "@/lib/message-keys";
 import { SuggestionChips, type SuggestionChipsHandle } from "./SuggestionChips";
 import { PiTodosPanel } from "./PiTodosPanel";
+import { PinnedPromptBar } from "./PinnedPromptBar";
 
 interface Props {
   session: SessionInfo | null;
@@ -1003,6 +1004,33 @@ export function ChatWindow({ session, searchTarget, onSearchTargetHandled, initi
     current.sessionId = messageKeySessionId;
     return assignMessageKeys(current.tracker, messages, entryIds);
   }, [messageKeySessionId, messages, entryIds]);
+  // Fork overlay: the prompt currently being answered, for PinnedPromptBar.
+  // Walks the rendered list rather than the branch, so it always names the
+  // message the user is actually looking at.
+  const pinnedPrompt = useMemo(() => {
+    for (let i = messages.length - 1; i >= 0; i -= 1) {
+      const message = messages[i];
+      if (message.role !== "user") continue;
+      const content = (message as { content?: unknown }).content;
+      const text = typeof content === "string"
+        ? content
+        : Array.isArray(content)
+          ? content
+              .filter((block): block is { type: string; text: string } => (
+                typeof block === "object" && block !== null
+                && (block as { type?: unknown }).type === "text"
+                && typeof (block as { text?: unknown }).text === "string"
+              ))
+              .map((block) => block.text)
+              .join("\n")
+          : "";
+      const trimmed = text.trim();
+      if (!trimmed) continue;
+      return { text: trimmed, entryId: entryIds[i] ?? null };
+    }
+    return null;
+  }, [messages, entryIds]);
+
   const promptAnchorSpacerRef = useRef<HTMLDivElement | null>(null);
   const promptAnchorSpacerHeightRef = useRef(0);
   const promptAnchorMeasureFrameRef = useRef<number | null>(null);
@@ -1354,6 +1382,20 @@ export function ChatWindow({ session, searchTarget, onSearchTargetHandled, initi
             visibility: pendingScrollRestore && !loading ? "hidden" : undefined,
           }}
         >
+          {/* Fork overlay: the question stays reachable while its answer is on
+              screen — sticky at the top, and only while the real message is
+              scrolled out of view. */}
+          <PinnedPromptBar
+            text={pinnedPrompt?.text ?? null}
+            entryId={pinnedPrompt?.entryId ?? null}
+            scrollContainerRef={scrollContainerRef}
+            onJump={scrollToMessage}
+            labels={{
+              title: t("chat.pinnedPrompt"),
+              toggle: t("chat.pinnedPromptToggle"),
+              jump: t("chat.pinnedPromptJump"),
+            }}
+          />
           <div style={{ minWidth: 0, padding: `0 ${CHAT_COLUMN_PADDING}px` }}>
             <div ref={messageContentRef} onPointerUp={captureQuotedSelection} style={{ width: "100%", minWidth: 0, maxWidth: "var(--chat-content-max-width, 820px)", margin: "0 auto" }}>
             {loading ? (

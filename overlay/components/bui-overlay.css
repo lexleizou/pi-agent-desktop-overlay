@@ -928,3 +928,120 @@ html.dark .ctx-session-metrics .is-cost,
     transition: none;
   }
 }
+
+/* ==========================================================================
+   Pinned prompt (components/PinnedPromptBar.tsx, fork overlay)
+   The question being answered, kept at the top of the message list whenever the
+   real message has scrolled out of view. Sticky inside the scroll container so
+   it costs no layout when hidden.
+   ========================================================================== */
+
+.pinned-prompt {
+  position: sticky;
+  top: 0;
+  z-index: 12;
+  /* The scroll container has pt-4; pull back so the bar sits flush at the top. */
+  margin: -16px 0 10px;
+  padding: 0 var(--chat-column-padding, 16px);
+  pointer-events: none;
+}
+
+.pinned-prompt-inner {
+  display: flex;
+  align-items: flex-start;
+  gap: 4px;
+  max-width: var(--chat-content-max-width, 820px);
+  margin: 0 auto;
+  padding: 4px 4px 4px 8px;
+  border: 1px solid var(--bui-line);
+  border-radius: var(--bui-radius-card);
+  background: color-mix(in srgb, var(--bg) 86%, transparent);
+  -webkit-backdrop-filter: blur(12px) saturate(120%);
+  backdrop-filter: blur(12px) saturate(120%);
+  box-shadow: var(--bui-shadow-card);
+  pointer-events: auto;
+}
+
+.pinned-prompt-body {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  flex: 1;
+  min-width: 0;
+  padding: 2px 4px;
+  border: 0;
+  border-radius: var(--bui-radius-control);
+  background: transparent;
+  color: var(--text-muted);
+  font: inherit;
+  font-size: 12px;
+  line-height: 1.5;
+  text-align: left;
+  cursor: pointer;
+}
+
+.pinned-prompt-body:hover {
+  background: var(--bui-hover);
+  color: var(--bui-ink-2);
+}
+
+.pinned-prompt-body:focus-visible {
+  outline: 1.5px solid var(--bui-accent);
+  outline-offset: 1px;
+}
+
+.pinned-prompt-glyph {
+  flex: none;
+  margin-top: 1px;
+  color: var(--bui-accent);
+  font-size: 10px;
+  line-height: 1.5;
+}
+
+.pinned-prompt-text {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.pinned-prompt.is-expanded .pinned-prompt-text {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  max-height: 26vh;
+  overflow-y: auto;
+}
+
+.pinned-prompt-action {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  border: 1px solid transparent;
+  border-radius: var(--bui-radius-chip);
+  background: transparent;
+  color: var(--bui-ink-3);
+  cursor: pointer;
+  transition: background 120ms var(--bui-ease-out), color 120ms var(--bui-ease-out),
+              border-color 120ms var(--bui-ease-out);
+}
+
+.pinned-prompt-action:hover {
+  background: var(--bui-hover);
+  border-color: var(--bui-line);
+  color: var(--bui-ink);
+}
+
+.pinned-prompt-action:focus-visible {
+  outline: 1.5px solid var(--bui-accent);
+  outline-offset: 1px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .pinned-prompt-action {
+    transition: none;
+  }
+}

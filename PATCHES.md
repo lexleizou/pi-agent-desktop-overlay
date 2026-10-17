@@ -203,6 +203,27 @@ composer spacer 同步把聊天滚到底——刚发的问题直接被顶出视�
   作用域评测：51 个文本节点中 31 个随缩放变化，余下的是 inline 字号元素，已由上面两条规则补齐。
 - `npx tsc --noEmit` 通过；`npm test` → 2866 pass / 0 fail。
 
+第十四期（2026-10-17）：**我发的那条提问一直置顶可见（当前正在回应什么，一眼就能看到）。**
+
+- 来源：Lex 要求「每次对话的上下文窗口里，我发送的最近一次内容一直置顶显示，方便分辨当前在回应什么」。
+- 为什么不直接延长既有的 prompt anchor：anchor 只在**回合进行中**把消息滚到顶部，回合结束就释放，
+  而尾随滚动会把回复带进视野——提问恰好在你开始读答案时离开屏幕。两者目标不同：
+  anchor 管「生成时占位」，本需求要的是「读答案时仍有参照」。
+- 实现（新增 `components/PinnedPromptBar.tsx`，在 ChatWindow 的消息滚动容器内作为第一个子元素，
+  `position: sticky; top: 0`，不放布局成本；**不改动任何滚动逻辑**）：
+  - 内容取「渲染列表里最后一条 user 消息」的文本（含多模态的 text 块拼接），并带它的
+    `data-entry-id`。
+  - **真正的消息完整可见时自动隐藏**（IntersectionObserver，root 为滚动容器，阈值 0.98）——
+    同一段文字永不重复出现，滚动时也不会跳变；滚出视野就顶上。
+  - 点击整条展开/收起（超长提问展开后最高 26vh 可滚动），右侧 ↑ 按钮跳回该条消息
+    （`[data-entry-id]` + 现有 `scrollToMessage`）。
+  - 新增 i18n：`chat.pinnedPrompt` / `chat.pinnedPromptToggle` / `chat.pinnedPromptJump`（三语言）。
+- 实测（dev 实例，真实会话）：
+  - 停在底部时：bar 存在、`position: sticky`、文本为最后一条提问。
+  - 点击 → `is-expanded` 生效；点击 ↑ → `scrollTop` 2644 → 2096，提问进入视野后 **bar 自动消失**。
+  - 再滚回底部 → bar 重新出现。
+- `npx tsc --noEmit` 通过；`npm test` → **2866 pass / 0 fail**。
+
 日期：2026-10-16（六期、七期为 2026-10-17 追加，八、九期为 2026-10-17 追加）
 基线：abcwyc/pi-agent-desktop **v0.7.1**（tag `v0.7.1` = `9519ce4c1c2e504ba1d0aaaddcfed6ea8e49d0b3`；上游 pi-web v0.10.0 合并至
 `6fcd7d4`，该 SHA 是 pi-web 的提交，不是 pi-agent-desktop 的）
