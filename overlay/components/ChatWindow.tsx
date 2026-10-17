@@ -1022,6 +1022,17 @@ export function ChatWindow({ session, searchTarget, onSearchTargetHandled, initi
     const messageContent = messageContentRef.current;
     const userMessage = lastUserMsgRef.current;
     if (!container || !messageContent || !userMessage || !spacer) return;
+    // Fork fix (2026-10-17): the composer is an absolute overlay on top of the
+    // scroll container, so the bottom `composerOverlay` pixels of that
+    // container are never visible. The anchor spacer below must be sized
+    // against the *visible* height, not the container height: otherwise the
+    // spacer plus the composer spacer push the usable scroll range past the
+    // anchored message, and anything that scrolls to the true bottom (live
+    // follow, the composer-spacer sync) parks the viewport in blank space
+    // with the message above it — exactly the "sent message disappeared"
+    // symptom. Reading the composer here in the same frame keeps spacer and
+    // measurement consistent.
+    const composerOverlay = composerOverlayRef.current;
 
     let disposed = false;
     const updatePromptAnchorSpacer = () => {
@@ -1041,10 +1052,14 @@ export function ChatWindow({ session, searchTarget, onSearchTargetHandled, initi
       const contentEnd = spacer.getBoundingClientRect().top
         - containerTop
         + container.scrollTop;
+      const composerHeight = composerOverlayRef.current
+        ? Math.ceil(composerOverlayRef.current.getBoundingClientRect().height)
+        : 0;
+      const visibleHeight = Math.max(0, container.clientHeight - composerHeight);
       const nextPromptAnchorSpacerHeight = getPromptAnchorSpacerHeight(
         targetTop,
         contentEnd,
-        container.clientHeight,
+        visibleHeight,
       );
 
       const isInitialMeasurement = !promptAnchorAdjustmentDoneRef.current;
@@ -1076,6 +1091,11 @@ export function ChatWindow({ session, searchTarget, onSearchTargetHandled, initi
     observer?.observe(container);
     observer?.observe(messageContent);
     observer?.observe(userMessage);
+    // The composer grows and shrinks with the suggestion card, the status
+    // shelf and the queued-message rows; the visible height changes with it,
+    // so the anchor spacer has to be re-measured. Without this the sent
+    // message drifts up by exactly the composer's height change.
+    if (composerOverlay) observer?.observe(composerOverlay);
     return () => {
       disposed = true;
       if (promptAnchorUpdateRef.current === updatePromptAnchorSpacer) {
@@ -1313,8 +1333,10 @@ export function ChatWindow({ session, searchTarget, onSearchTargetHandled, initi
         )}
         {/* pi-todos: task panel pinned to the chat area's
             top-right corner (state mirrored through get_state, no polling).
-            `busy` only drives the live "Working" shimmer + progress rail. */}
-        <PiTodosPanel todos={piTodos?.todos ?? null} busy={sessionBusy} />
+            `busy` drives the live "Working" shimmer + progress rail;
+            `anchored` tells the panel the question is pinned to the top of the
+            chat area, so it steps aside instead of covering it. */}
+        <PiTodosPanel todos={piTodos?.todos ?? null} busy={sessionBusy} anchored={promptAnchorActive} />
         {!isEmptyNew && <>
         <div
           ref={scrollContainerRef}

@@ -13,10 +13,24 @@ across files, no upstream line is rewritten, and every mount point is an indepen
 |---|---|
 | **Follow-up suggestions** | After a reply finishes, 2–3 next-prompt suggestions are generated with a cheap model call and shown as a recommendation card above the composer. Clicking one fills the composer without sending. |
 | **Ghost text** | Prefix-matched completion while typing, shown as a `Tab` hint beside the composer. Tab accepts. No model call — matched against your input history. |
-| **Task panel** | A task list pinned to the chat area's top-right corner, driven by the `todo` tool: completion rail, per-row status badges, expandable long rows, live `Working · Ns` while a turn runs. No polling — state is replayed from the session branch. |
+| **Task panel** | A task list pinned to the chat area's top-right corner, driven by the `todo` tool: completion rail, per-row status badges, expandable long rows, live `Working · Ns` while a turn runs. Resizable (drag the left edge), collapsible, and closable; the state is remembered. It only opens as a card when the card actually fits in the gutter beside the message column — otherwise, and while the question is pinned to the top of the chat, it stays a small pill so an automatic popup cannot cover the text. No polling — state is replayed from the session branch. |
 | **Usage footer** | Per-turn `Tokens: total(in/out/cache) | Cache Hit N% | TPS | Elapsed | Cost`, with threshold-based colouring. |
 | **Context ring** | Always-visible `pct% / window` beside the context-usage ring. |
 | **Model selector** | Full model names (no 220px truncation) and a two-level provider → model menu. |
+
+## Two upstream behaviours this overlay fixes
+
+Both were found by driving the real UI, not by reading the code:
+
+- **The composer is an absolute overlay, but the prompt-anchor spacer was measured against the
+  full scroll-container height.** The bottom `composerHeight` pixels are never visible, so the
+  reserved space overshot by exactly one composer height, and anything that scrolled to the true
+  bottom (streaming follow, the composer-spacer sync) parked the viewport in blank space with the
+  just-sent message above it. The anchor is now measured against the visible height
+  (`clientHeight - composerHeight`) and re-measured when the composer resizes.
+- **The suggestion card used to sit in the composer's flow**, so a turn ending grew the composer
+  from ~141px to ~292px and re-scrolled the chat to the bottom — pushing the question out of view.
+  The card now floats above the composer, so the chat area's height no longer changes.
 
 ## Design language
 

@@ -149,7 +149,7 @@ index 7bb6624..2dcb6d7 100644
            {isStreaming ? (
              <div style={{ display: "flex", alignItems: "center", gap: 6, flexShrink: 0, alignSelf: "flex-end" }}>
 diff --git a/components/ChatWindow.tsx b/components/ChatWindow.tsx
-index 6911167..09f7f13 100644
+index 6911167..7ea740c 100644
 --- a/components/ChatWindow.tsx
 +++ b/components/ChatWindow.tsx
 @@ -39,6 +39,8 @@ import {
@@ -217,7 +217,53 @@ index 6911167..09f7f13 100644
    const [quotedSelection, setQuotedSelection] = useState<{
      text: string;
      top: number;
-@@ -1178,7 +1220,8 @@ export function ChatWindow({ session, searchTarget, onSearchTargetHandled, initi
+@@ -980,6 +1022,17 @@ export function ChatWindow({ session, searchTarget, onSearchTargetHandled, initi
+     const messageContent = messageContentRef.current;
+     const userMessage = lastUserMsgRef.current;
+     if (!container || !messageContent || !userMessage || !spacer) return;
++    // Fork fix (2026-10-17): the composer is an absolute overlay on top of the
++    // scroll container, so the bottom `composerOverlay` pixels of that
++    // container are never visible. The anchor spacer below must be sized
++    // against the *visible* height, not the container height: otherwise the
++    // spacer plus the composer spacer push the usable scroll range past the
++    // anchored message, and anything that scrolls to the true bottom (live
++    // follow, the composer-spacer sync) parks the viewport in blank space
++    // with the message above it — exactly the "sent message disappeared"
++    // symptom. Reading the composer here in the same frame keeps spacer and
++    // measurement consistent.
++    const composerOverlay = composerOverlayRef.current;
+ 
+     let disposed = false;
+     const updatePromptAnchorSpacer = () => {
+@@ -999,10 +1052,14 @@ export function ChatWindow({ session, searchTarget, onSearchTargetHandled, initi
+       const contentEnd = spacer.getBoundingClientRect().top
+         - containerTop
+         + container.scrollTop;
++      const composerHeight = composerOverlayRef.current
++        ? Math.ceil(composerOverlayRef.current.getBoundingClientRect().height)
++        : 0;
++      const visibleHeight = Math.max(0, container.clientHeight - composerHeight);
+       const nextPromptAnchorSpacerHeight = getPromptAnchorSpacerHeight(
+         targetTop,
+         contentEnd,
+-        container.clientHeight,
++        visibleHeight,
+       );
+ 
+       const isInitialMeasurement = !promptAnchorAdjustmentDoneRef.current;
+@@ -1034,6 +1091,11 @@ export function ChatWindow({ session, searchTarget, onSearchTargetHandled, initi
+     observer?.observe(container);
+     observer?.observe(messageContent);
+     observer?.observe(userMessage);
++    // The composer grows and shrinks with the suggestion card, the status
++    // shelf and the queued-message rows; the visible height changes with it,
++    // so the anchor spacer has to be re-measured. Without this the sent
++    // message drifts up by exactly the composer's height change.
++    if (composerOverlay) observer?.observe(composerOverlay);
+     return () => {
+       disposed = true;
+       if (promptAnchorUpdateRef.current === updatePromptAnchorSpacer) {
+@@ -1178,7 +1240,8 @@ export function ChatWindow({ session, searchTarget, onSearchTargetHandled, initi
      );
    }
  
@@ -227,18 +273,20 @@ index 6911167..09f7f13 100644
    const belowEditorWidgets = extensionWidgets.filter((widget) => widget.placement === "belowEditor");
    const hasExtensionStatus = formatExtensionStatusLine(extensionStatuses).length > 0;
  
-@@ -1268,6 +1311,10 @@ export function ChatWindow({ session, searchTarget, onSearchTargetHandled, initi
+@@ -1268,6 +1331,12 @@ export function ChatWindow({ session, searchTarget, onSearchTargetHandled, initi
          {extensionCustomUi && (
            <ExtensionCustomPanel key={extensionCustomUi.id} request={extensionCustomUi} waitingCount={waitingExtensionCustomUiCount} onInput={sendExtensionCustomInput} />
          )}
 +        {/* pi-todos: task panel pinned to the chat area's
 +            top-right corner (state mirrored through get_state, no polling).
-+            `busy` only drives the live "Working" shimmer + progress rail. */}
-+        <PiTodosPanel todos={piTodos?.todos ?? null} busy={sessionBusy} />
++            `busy` drives the live "Working" shimmer + progress rail;
++            `anchored` tells the panel the question is pinned to the top of the
++            chat area, so it steps aside instead of covering it. */}
++        <PiTodosPanel todos={piTodos?.todos ?? null} busy={sessionBusy} anchored={promptAnchorActive} />
          {!isEmptyNew && <>
          <div
            ref={scrollContainerRef}
-@@ -1651,6 +1698,11 @@ export function ChatWindow({ session, searchTarget, onSearchTargetHandled, initi
+@@ -1651,6 +1720,11 @@ export function ChatWindow({ session, searchTarget, onSearchTargetHandled, initi
              </div>
            </div>
          )}
@@ -554,6 +602,24 @@ index 4a9720b..e79b428 100644
            ...(ctx?.contextWindow ? [[translate("session.context"), `${ctx.percent !== null ? `${ctx.percent.toFixed(1)}%` : "?"} / ${formatCompact(ctx.contextWindow)}`]] : []),
          ];
          const section = (
+diff --git a/hooks/useAgentSession.test.mjs b/hooks/useAgentSession.test.mjs
+index cc061fe..3b39a15 100644
+--- a/hooks/useAgentSession.test.mjs
++++ b/hooks/useAgentSession.test.mjs
+@@ -746,7 +746,12 @@ test("keeps a newly sent user message at the top while its response starts", ()
+   assert.match(userScrollSource, /previousScrollTopRef\.current = targetTop/);
+   assert.match(userScrollSource, /container\.scrollTo\(\{ top: targetTop, behavior: "auto" \}\)/);
+   assert.match(scrollEffectSource, /pendingScrollToUserRef\.current = false;[\s\S]*?scrollUserMsgToTop\(\)/);
+-  assert.match(chatWindowSource, /const contentEnd = spacer\.getBoundingClientRect\(\)\.top[\s\S]*?getPromptAnchorSpacerHeight\([\s\S]*?targetTop,[\s\S]*?contentEnd,[\s\S]*?container\.clientHeight/);
++  assert.match(chatWindowSource, /const contentEnd = spacer\.getBoundingClientRect\(\)\.top[\s\S]*?const composerHeight = composerOverlayRef\.current[\s\S]*?const visibleHeight = Math\.max\(0, container\.clientHeight - composerHeight\)[\s\S]*?getPromptAnchorSpacerHeight\([\s\S]*?targetTop,[\s\S]*?contentEnd,[\s\S]*?visibleHeight,/);
++  // The composer is an absolute overlay on top of the scroll container, so the
++  // anchor has to be measured against the visible height above it — otherwise
++  // the spacer overshoots and "scroll to bottom" parks the viewport in blank
++  // space with the sent message above it.
++  assert.match(chatWindowSource, /observer\?\.observe\(composerOverlay\)/);
+   assert.match(chatWindowSource, /<div ref=\{promptAnchorSpacerRef\} aria-hidden="true" \/>/);
+   assert.match(chatWindowSource, /const promptAnchorAdjustmentDoneRef = useRef\(false\)/);
+   assert.match(chatWindowSource, /promptAnchorAdjustmentDoneRef\.current = false/);
 diff --git a/hooks/useAgentSession.ts b/hooks/useAgentSession.ts
 index 8b60425..cb0d4f9 100644
 --- a/hooks/useAgentSession.ts

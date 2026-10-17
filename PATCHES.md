@@ -51,7 +51,45 @@ beautifului.dev（MIT，© 2026 Shane Levine）的元素重新设计，保留 Cl
   「Progress」/「Memory」分区命名与 OpenViking 入口保留。
 - **ghost text 提示**：`Tab` 键帽 + 补全预览，走同一套 control 圆角与发丝环。
 
-日期：2026-10-16（六期、七期为 2026-10-17 追加，八期为 2026-10-17 追加）
+第九期（2026-10-17）：**修掉「发完消息后最后一条被推出视口、窗口剩下空白」，并给 pi-todos 面板加上缩放、折叠与关闭。**
+
+问题 1：发完消息后，自己刚发的内容被推出视口，可见区域只剩空白。
+- 写入锚点（prompt anchor）按 `container.clientHeight` 计算预留高度，而 composer 是
+  **绝对定位覆盖在滚动容器之上**的，底部 `composerHeight` 像素永远看不见。预留高度因此
+  多了整整一个 composer 的高度，任何“滚到底”（流式跟随、composer spacer 同步）都会滚到
+  锚点下方 `composerHeight` 处，把问题推出视口、只留下两块留白 spacer。
+- 修法：锚点按**可见高度**（`clientHeight - composerHeight`）计算，并观察 composer，
+  使其自身高度变化时重新测量。
+
+问题 2：回合结束时建议卡在 composer 流内，composer 高度从 141px 涨到 292px，
+composer spacer 同步把聊天滚到底——刚发的问题直接被顶出视口（实测 `topInViewport = -15`）。
+- 修法：建议卡改为绝对定位悬在 composer 上方（与上游 scroll-to-bottom 按钮同一做法），
+  composer 高度不再随卡片变化。实测回合结束后 spacer 保持 141px，问题仍在视口内（`+136`）。
+
+问题 3：pi-todos 面板会盖住刚发的问题，且无法缩放/关闭。
+- 新增三种状态：**card / pill / closed**，宽度可拖左边缘调整（也支持聚焦后用 ←/→），
+  `localStorage` 记住模式与宽度。
+- **不遮挡**：只有卡片宽度放得进消息列旁的空档
+  （`gutter = (chatWidth - 820) / 2 >= width + 12`）时才用卡片，否则退化为小胶囊；
+  锚点生效（问题钉在顶部）或回合进行中时同样退化为胶囊，并整体下移到 `top: 76px`。
+  实测：1900px 窗口卡片距消息列 94px、1500/1280px 退化胶囊无重叠；1100px 窗口胶囊
+  与列右缘重叠 74px（窄窗口下浮层无法完全避免，胶囊仅 82x27 且可关闭）。
+- 顺手修了一个自己的真 bug：测量聊天区宽度的 effect 依赖为 `[]`，而面板在无 todo 时
+  不渲染，导致首次 mount 拿到 null ref 后再也不测量，永远停留在卡片布局。改为按
+  `hasRows` 触发；`setPointerCapture` 也改成不致命（浏览器可拒绝）。
+
+验证（2026-10-17，dev 实例 127.0.0.1:30155 + Chrome DevTools 实测，非只看代码）：
+- 发送后：回合进行中 `msgTopInViewport = 22`（完整可见）；回合结束后 `+136`
+  （修复前同场景为 `-15`，已出视口）。
+- 面板：1900/1500/1280/1100 四档宽度下的 card↔pill 判定与几何均实测；折叠→胶囊、
+  再次点击→卡片、关闭→恢复胶囊（◱ 2/4）、恢复→胶囊四种交互与 localStorage
+  持久化均通过；拖拽与键盘缩放改变宽度并落盘。
+- `npx tsc --noEmit` 通过；`npx eslint`（改动文件）exit 0；`npm test` → **2864 pass / 0 fail**；
+  `npm run check:branding` 2 pass。
+- 上游测试 `hooks/useAgentSession.test.mjs` 里断言锚点第三参为 `container.clientHeight`
+  的那一条已按新语义更新（改为断言可见高度与 composer 观察），属必要修改。
+
+日期：2026-10-16（六期、七期为 2026-10-17 追加，八、九期为 2026-10-17 追加）
 基线：abcwyc/pi-agent-desktop **v0.7.1**（tag `v0.7.1` = `9519ce4c1c2e504ba1d0aaaddcfed6ea8e49d0b3`；上游 pi-web v0.10.0 合并至
 `6fcd7d4`，该 SHA 是 pi-web 的提交，不是 pi-agent-desktop 的）
 
@@ -74,7 +112,7 @@ beautifului.dev（MIT，© 2026 Shane Levine）的元素重新设计，保留 Cl
 | `components/bui-overlay.css` | 【八期】beautifului.dev 元素层：`--bui-*` token（oklch 表面/ink/线/语义色、6-8-10-14 圆角、发丝环分层阴影、五档缓动）、4 个动效原语、SuggestionChips 卡片、TaskRows 任务面板、ghost text 提示。放在 cds-overlay.css 之后加载 |
 | `lib/pi-todos.ts` | 【五期】`piTodosFromEvent`（从 `todo` 工具的 tool_execution_end 提取状态）、`reconstructPiTodos`（按当前分支回放 tool result + `/todos` 手工 custom entry） |
 | `lib/pi-todos.test.mjs` | 【五期】pi-todos 解析/回放单测 |
-| `components/PiTodosPanel.tsx` | 【五期】右上角浮动任务面板：完成计数、可折叠、全部完成后自动收起 |
+| `components/PiTodosPanel.tsx` | 【五期】右上角浮动任务面板：完成计数、可折叠、全部完成后自动收起。【八期】改为 beautifului TaskRows 结构（进度条 + 状态徽标 + 长行展开 + `Working · Ns`）。【九期】card / pill / closed 三态、左边缘拖拽缩放（←/→ 亦可）、`localStorage` 记忆，且仅在卡片放得进消息列旁空档时展开 |
 | `lib/usage-footer.ts` | 【五期】usage 行纯格式化：K/M 紧凑数字、耗时（s / m s / h m）、cache hit 阈值（≥80 good、≥50 fair、其余 poor）、亚分级成本保留非零位 |
 | `lib/usage-footer.test.mjs` | 【五期】6 个单测（含截图那一行的完整复现） |
 | `components/UsageFooter.tsx` | 【五期】按段渲染 usage 行，颜色全部走 CSS class，不写死 inline 色值 |
@@ -94,7 +132,7 @@ beautifului.dev（MIT，© 2026 Shane Levine）的元素重新设计，保留 Cl
 | `components/SessionStatsPanel.tsx` | 【四期】统计面板加 Cache hit、Elapsed 两行（纯新增数组项；未套五期配色） |
 | `lib/rpc-manager.ts` | 【五期】+1 行 import；`emit(event)` 后若为 todo 工具结果则追加 `pi_todos_update` 事件；`get_state` 返回 `piTodos`（`sessionManager?.getBranch?.()` 可选链，兼容测试桩） |
 | `hooks/useAgentSession.ts` | 【五期】`AgentStateResponse.piTodos` 可选字段 + `piTodos` state（切换会话时重置，get_state / `pi_todos_update` 两路更新）并随 hook 返回 |
-| `components/ChatWindow.tsx` | 【五期】`aboveEditorWidgets` 过滤掉 `pi-todos` widget（避免重复显示），并在 ExtensionCustomPanel 之后挂载 `<PiTodosPanel />`。【八期】`<PiTodosPanel>` 增加 `busy={sessionBusy}`，仅驱动忙碌时的扫光进度条与 `Working · Ns` 计时 |
+| `components/ChatWindow.tsx` | 【五期】`aboveEditorWidgets` 过滤掉 `pi-todos` widget（避免重复显示），并在 ExtensionCustomPanel 之后挂载 `<PiTodosPanel />`。【八期】`<PiTodosPanel>` 增加 `busy={sessionBusy}`，仅驱动忙碌时的扫光进度条与 `Working · Ns` 计时。【九期】锚点预留高度改按可见高度（减掉 composer 高度）计算并观察 composer；`<PiTodosPanel>` 再传 `anchored={promptAnchorActive}` |
 | `components/MessageView.tsx` | 【五期】usage 行改用 `<UsageFooter />`（仅非流式时显示）；旧 `formatUsage` 保留并加 eslint-disable 注释，减少与上游的行级冲突 |
 
 ## 与上游同步的兼容性（fork-ownership 机制核对）
