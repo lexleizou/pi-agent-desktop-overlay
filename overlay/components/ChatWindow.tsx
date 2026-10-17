@@ -1311,9 +1311,10 @@ export function ChatWindow({ session, searchTarget, onSearchTargetHandled, initi
         {extensionCustomUi && (
           <ExtensionCustomPanel key={extensionCustomUi.id} request={extensionCustomUi} waitingCount={waitingExtensionCustomUiCount} onInput={sendExtensionCustomInput} />
         )}
-        {/* pi-todos: Claude Co-Work style task panel pinned to the chat area's
-            top-right corner (state mirrored through get_state, no polling). */}
-        <PiTodosPanel todos={piTodos?.todos ?? null} />
+        {/* pi-todos: task panel pinned to the chat area's
+            top-right corner (state mirrored through get_state, no polling).
+            `busy` only drives the live "Working" shimmer + progress rail. */}
+        <PiTodosPanel todos={piTodos?.todos ?? null} busy={sessionBusy} />
         {!isEmptyNew && <>
         <div
           ref={scrollContainerRef}

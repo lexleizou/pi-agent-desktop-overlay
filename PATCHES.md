@@ -18,9 +18,42 @@ Context / Memory 分区 + 模型选择器两项（长名完整显示、供应商
 工具与 `CoworkPanel` 和五期的 `PiTodosPanel` 是两套并行实现，同屏渲染出两个
 「Progress」面板（一个在输入框下方、一个在右上角），任务内容还互不相同。按
 "只留一个"的决定，整体摘除三期这条线，只保留五期基于 `todo` 工具的右上角面板。
+第七期（2026-10-17）：**修复一期 follow-up 建议从未生效**（严重，功能自交付起就是坏的）。
+症状：对话结束后不出现建议 chips。根因：`lib/suggestion-engine.ts` 用
+`completeSimple()`（来自 `@earendil-works/pi-ai/compat`）发起请求，而 compat 的凭据解析
+只查一张写死的 provider→环境变量表（`getEnvApiKey`），其中**没有 `magpie` 这类自定义
+本地网关**，因此每次调用都抛 `No API key for provider: magpie`。同一会话下
+`/api/sessions/<id>/auto-name`（走 `agent.streamFunction`，携带 models.json 已解析的
+鉴权）返回 200，而 `/api/agent/<id>/suggestions` 返回 500，即为铁证。修复：改用
+会话自身的 `source.streamFunction(...)`，与 `lib/session-title.ts` 一直以来的做法一致。
 
-日期：2026-10-16（六期为 2026-10-17 追加）
-基线：abcwyc/pi-agent-desktop main（pi-web v0.10.0, `main@6fcd7d4`）
+第八期（2026-10-17）：**修复 ghost text 的两个已知缺陷，并把 overlay 用
+beautifului.dev（MIT，© 2026 Shane Levine）的元素重新设计，保留 Claude/CDS 的视觉要素。**
+
+修复部分（第七期遗留的「后续（候选）」第 1 项）：
+- **定位**：原实现在 `.ghost-text-layer`（`position: absolute`，最近的定位祖先是外层
+  `.chat-composer-wrap`）里用隐藏 mirror 元素测光标，位置基准与预期不符，且测量一旦
+  失败就静默不显示。现改为**不做任何光标测量**——补全提示作为 textarea 的普通 flex
+  兄弟节点渲染，位置不可能错。
+- **只触发一次**：原实现只在 textarea 的 change/select 里重算，其他改动 draft 的路径
+  不会重算，表现为「只有第一次生效」。现改为**以 draft 值本身为依赖**重算，且 state
+  更新做同一性检查（completion/source 相同则不 setState），因此重算不会成环。
+
+重设计部分（新增 `components/bui-overlay.css`，命名空间 `--bui-*`）：
+- **token 层**：oklch 四/五层表面、三级 ink、6/8/10/14 圆角梯度、发丝环 + 分层阴影、
+  五档缓动、4 个动效原语（shimmer-text / pop-in / fade-up / progress rail sweep）。
+- **SuggestionChips → 推荐卡**（借 beautifului `RecommendationCard` 结构）：卡片外壳 +
+  标题行 + 序号 + 悬停出现的 ↵ 采纳提示 + 逐行 fade-up。**刻意不做置信度仪表**——引擎只
+  返回纯文本，不凭空造分数；保留 Claude 的「只填入、不发送」保守交互与 Clay 强调色。
+- **PiTodosPanel → TaskRows**：完成度进度条（忙碌时带扫光）、逐行状态徽标（✓ / 空心，
+  只有 done / 未完成两态，不假装有 per-task 运行态）、长行可就地展开、`+N more` 折叠、
+  忙碌时头部 `Working · Ns` shimmer 计时（对应 beautifului `LoadingState`）。
+  「Progress」/「Memory」分区命名与 OpenViking 入口保留。
+- **ghost text 提示**：`Tab` 键帽 + 补全预览，走同一套 control 圆角与发丝环。
+
+日期：2026-10-16（六期、七期为 2026-10-17 追加，八期为 2026-10-17 追加）
+基线：abcwyc/pi-agent-desktop **v0.7.1**（tag `v0.7.1` = `9519ce4`；上游 pi-web v0.10.0 合并至
+`6fcd7d4`，该 SHA 是 pi-web 的提交，不是 pi-agent-desktop 的）
 
 ## 文件清单
 
@@ -37,7 +70,8 @@ Context / Memory 分区 + 模型选择器两项（长名完整显示、供应商
 | ~~`lib/cowork-extension.ts`~~ | 【三期】【六期已删除】pi 扩展：`task_list` / `set_context` 两个模型工具 |
 | ~~`app/api/agent/[id]/cowork/route.ts`~~ | 【三期】【六期已删除】`GET`：只读侧栏数据 |
 | ~~`components/CoworkPanel.tsx`~~ | 【三期】【六期已删除】Co-Work 面板；与五期 `PiTodosPanel` 重复，整体移除 |
-| `components/cds-overlay.css` | CDS token 子集（浅色/暗色 `html.dark`）+ chips、ghost text、cowork panel 样式；刻意不带 open-claude-ui 全局的字体补偿规则。【五期】+`.usage-footer-*` 配色（浅色 / `html.dark`、dark、pine 三套暗色覆盖） |
+| `components/cds-overlay.css` | CDS token 子集（浅色/暗色 `html.dark`）+ chips、ghost text、cowork panel 样式；刻意不带 open-claude-ui 全局的字体补偿规则。【五期】+`.usage-footer-*` 配色（浅色 / `html.dark`、dark、pine 三套暗色覆盖）。【八期】ghost text 的旧 inline 层样式（`.ghost-text` / `.ghost-text-layer`）已删除，改由 bui-overlay.css 承载提示样式 |
+| `components/bui-overlay.css` | 【八期】beautifului.dev 元素层：`--bui-*` token（oklch 表面/ink/线/语义色、6-8-10-14 圆角、发丝环分层阴影、五档缓动）、4 个动效原语、SuggestionChips 卡片、TaskRows 任务面板、ghost text 提示。放在 cds-overlay.css 之后加载 |
 | `lib/pi-todos.ts` | 【五期】`piTodosFromEvent`（从 `todo` 工具的 tool_execution_end 提取状态）、`reconstructPiTodos`（按当前分支回放 tool result + `/todos` 手工 custom entry） |
 | `lib/pi-todos.test.mjs` | 【五期】pi-todos 解析/回放单测 |
 | `components/PiTodosPanel.tsx` | 【五期】右上角浮动任务面板：完成计数、可折叠、全部完成后自动收起 |
@@ -51,7 +85,7 @@ Context / Memory 分区 + 模型选择器两项（长名完整显示、供应商
 |---|---|
 | `components/ChatWindow.tsx` | 【一期】① import SuggestionChips；② `sessionBusy` 之后加 busy→idle 侦测 effect（600ms 延迟 fetch，AbortController，挂载就绪的 idle 会话不触发）；③ `{chatInputElement}` 之上挂载 `<SuggestionChips />`。【六期】已移除三期的 CoworkPanel import 与挂载 |
 | `app/layout.tsx` | 【一期】+2 行 import `@/components/cds-overlay.css`（组件级 CSS import 会破坏上游 Node test runner） |
-| `components/ChatInput.tsx` | 【二期】5 处块状接线：① import；② refs 区实例化 `useGhostText`（suppressed = streaming/IME/任一菜单开）；③ `clearInput` 加 hide；④ textarea onChange/onSelect/composition 事件加 update/hide；⑤ handleKeyDown 在所有菜单之后加 Tab-accept 分支 + textarea 后渲染 ghost 层。全部为块状新增，不改写上游行 |
+| `components/ChatInput.tsx` | 【二期】5 处块状接线：① import；② refs 区实例化 `useGhostText`（suppressed = streaming/IME/任一菜单开）；③ `clearInput` 加 hide；④ textarea onChange/onSelect/composition 事件加 update/hide；⑤ handleKeyDown 在所有菜单之后加 Tab-accept 分支 + textarea 后渲染 ghost 层。全部为块状新增，不改写上游行。【八期】`useGhostText` 增加第 4 个参数 `value`（重算依赖）；textarea 之后渲染的 ghost 层由「绝对定位 span + 光标坐标」改为「普通 flex 兄弟节点提示（`Tab` 键帽 + 补全预览）」，不再需要光标测量 |
 | `components/ModelSelector.tsx` | 【三期】① toolbar 变体 maxWidth 220 → max-content（长模型名完整显示）；② 下拉面板加两级递进：多供应商时先显示供应商行（带模型数+当前选中提示+chevron），点入后显示该供应商模型列表+返回条；单供应商或过滤时保持平铺 |
 | `lib/rpc-manager.ts` | 【三期】+1 行 import + 扩展工厂列表中注册 `createCoworkExtension(...)`；【六期】两处均已移除 |
 | `components/MessageView.tsx` | 【四期】① 流式 t/s 徽章：亮底（蓝/绿/黄）改深色墨色（#16181d），红底保留白字并加深（#d81a4f），字重 500；② `formatUsage` 增加 `durationMs` 参数：输出 cache hit %（cacheRead/(input+cacheRead+cacheWrite)）与平均 t/s（output/duration），行内 `in/out/cache R/cache W` 格式不变 |
@@ -60,7 +94,7 @@ Context / Memory 分区 + 模型选择器两项（长名完整显示、供应商
 | `components/SessionStatsPanel.tsx` | 【四期】统计面板加 Cache hit、Elapsed 两行（纯新增数组项；未套五期配色） |
 | `lib/rpc-manager.ts` | 【五期】+1 行 import；`emit(event)` 后若为 todo 工具结果则追加 `pi_todos_update` 事件；`get_state` 返回 `piTodos`（`sessionManager?.getBranch?.()` 可选链，兼容测试桩） |
 | `hooks/useAgentSession.ts` | 【五期】`AgentStateResponse.piTodos` 可选字段 + `piTodos` state（切换会话时重置，get_state / `pi_todos_update` 两路更新）并随 hook 返回 |
-| `components/ChatWindow.tsx` | 【五期】`aboveEditorWidgets` 过滤掉 `pi-todos` widget（避免重复显示），并在 ExtensionCustomPanel 之后挂载 `<PiTodosPanel />` |
+| `components/ChatWindow.tsx` | 【五期】`aboveEditorWidgets` 过滤掉 `pi-todos` widget（避免重复显示），并在 ExtensionCustomPanel 之后挂载 `<PiTodosPanel />`。【八期】`<PiTodosPanel>` 增加 `busy={sessionBusy}`，仅驱动忙碌时的扫光进度条与 `Working · Ns` 计时 |
 | `components/MessageView.tsx` | 【五期】usage 行改用 `<UsageFooter />`（仅非流式时显示）；旧 `formatUsage` 保留并加 eslint-disable 注释，减少与上游的行级冲突 |
 
 ## 与上游同步的兼容性（fork-ownership 机制核对）
@@ -127,10 +161,32 @@ Context / Memory 分区 + 模型选择器两项（长名完整显示、供应商
   - 首页 200；主 chunk `page-db660c5019a16c25.js` 含 `pi-todos-panel`，
     不含 `task_list` / `set_context`
   - 旧包备份：`/Applications/.Pi Agent.app.bak-20261017`（289M，含 2 个 task_list 文件）
-- 【六期】踩坑：`launchctl submit` 提交的 job 在脚本退出后被 launchd 自动重启，
-  会陷入「等退出→重装」无限循环，并可能用同一备份路径覆盖掉上一份备份。
-  一次性安装任务必须在脚本末尾 `launchctl remove <label>` 自我清理，或改用
-  `nohup` + 脱离进程组。
+- 【七期】验证记录（2026-10-17）：
+  - 修复前：`POST /api/agent/<id>/suggestions` → **500** `No API key for provider: magpie`；
+    对照 `POST /api/sessions/<id>/auto-name`（同一会话、同一模型）→ **200**。
+  - 修复后（隔离实例 `next start -p 39991` 实测，4 个不同会话）：全部 **200**，
+    各返回 3 条与上下文相关的建议，用时 2.5–3.0s。
+  - 边界：不存在的会话仍返回 **404**；主服务不受影响。
+  - `npx tsc --noEmit` 通过；`npm run lint` 0 error；`npm test` → 2864 pass / 0 fail。
+  - 构建产物核对：`suggestions/route.js` 内 `streamFunction` 出现 1 次、
+    `completeSimple` 出现 0 次。
+- 【七期】ghost text（二期）实测状态：**可用但不稳**。已由第八期重构，见下。
+- 【八期】验证记录（2026-10-17）：
+  - `npx tsc --noEmit` 通过；`npx eslint`（6 个改动文件）exit 0，无 error / warning；
+    `npm test` → **2864 pass / 0 fail**；`npm run check:branding` 2 pass。
+  - 构建：`npm run desktop:build`（静态 Node 22 + rust toolchain PATH，
+    `env -u __NEXT_PRIVATE_STANDALONE_CONFIG -u __NEXT_PRIVATE_ORIGIN -u PI_WEB_PARENT_PID`）
+    → `.app` bundle 生成成功（本次连 DMG 也一起产出；末尾仅 updater 私钥缺失报警，与
+    功能无关，沿用既有做法）。
+  - 产物核对：`suggestions/route.js` 内 `streamFunction` 1 次、`completeSimple` 0 次；
+    `.bui-progress-rail`、`.ghost-text-hint-word`、`.suggestion-card-spark` 均已在打包后的
+    CSS / client chunk 中命中。
+  - 未做 GUI 人工验证（与五期同一限制）：新卡片、progress rail、
+    `Working · Ns` 的实际观感需在重装后的 App 里看一眼。
+  - 【八期】发布前从零验证：在 `v0.7.1` 的干净 worktree 上 `git apply
+    upstream-file-patches.diff` + 拷入 `overlay/`，`tsc --noEmit` 通过、`npm test` →
+    **2864 pass / 0 fail**。同时修正了旧说明里的基线错误：`6fcd7d4` 是 **pi-web** 的提交
+    （pi-web v0.10.0），在那个 SHA 上 checkout 得到的是 pi-web，补丁无法应用。
 
 ## 复用方式
 
@@ -141,5 +197,7 @@ Context / Memory 分区 + 模型选择器两项（长名完整显示、供应商
 ## 后续（候选）
 
 - Suggestions / ghost text 的 Settings 开关
-- CoworkPanel 记忆区接 OpenViking API 做会话级记忆读写（当前仅外链）
 - SessionStatsPanel 的 Cost / Cache hit 行套用 `.usage-footer-*` 同一套阈值配色
+- 若 beautifului 继续引入：下一步可考虑它的 `ToolChips`（工具调用折叠汇总）与
+  `StreamingText`（内联来源 + follow-up），两者与 MessageView 的工具块天然对齐；
+  `DiffTable` / `RecordsTable` 体量大且场景偏离，暂不移植

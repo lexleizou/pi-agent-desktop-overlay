@@ -11,12 +11,30 @@ across files, no upstream line is rewritten, and every mount point is an indepen
 
 | Feature | Description |
 |---|---|
-| **Follow-up suggestions** | After a reply finishes, 2–3 next-prompt chips are generated with a cheap model call. Clicking one fills the composer without sending. |
-| **Ghost text** | Inline, prefix-matched completion while typing. Tab accepts. No model call — matched against your input history. |
-| **Task panel** | A Co-Work style task list pinned to the chat area's top-right corner, driven by the `todo` tool. No polling: state is replayed from the session branch. |
+| **Follow-up suggestions** | After a reply finishes, 2–3 next-prompt suggestions are generated with a cheap model call and shown as a recommendation card above the composer. Clicking one fills the composer without sending. |
+| **Ghost text** | Prefix-matched completion while typing, shown as a `Tab` hint beside the composer. Tab accepts. No model call — matched against your input history. |
+| **Task panel** | A task list pinned to the chat area's top-right corner, driven by the `todo` tool: completion rail, per-row status badges, expandable long rows, live `Working · Ns` while a turn runs. No polling — state is replayed from the session branch. |
 | **Usage footer** | Per-turn `Tokens: total(in/out/cache) | Cache Hit N% | TPS | Elapsed | Cost`, with threshold-based colouring. |
 | **Context ring** | Always-visible `pct% / window` beside the context-usage ring. |
 | **Model selector** | Full model names (no 220px truncation) and a two-level provider → model menu. |
+
+## Design language
+
+Two token layers, both additive:
+
+- `overlay/components/cds-overlay.css` — a subset of the Claude Design System tokens
+  (four-layer surfaces, Clay accent, hairline ring, spring-ish easing), extracted from
+  open-claude-ui. Deliberately **not** the full stylesheet: its global font-weight
+  compensation would fight the upstream app's typography.
+- `overlay/components/bui-overlay.css` — a `--bui-*` token layer plus component styles
+  adapted from [beautifului.dev](https://www.beautifului.dev/) (oklch surface ramp, 6/8/10/14
+  radius scale, layered hairline shadows, five easing curves, motion primitives) for the
+  suggestion card, the task panel and the ghost-text hint.
+
+The two are blended, not swapped: accent stays Clay, surfaces stay quiet, the panel keeps its
+`Progress` / `Memory` section naming, and a suggestion still only *fills* the composer. No
+confidence gauge is drawn for suggestions — the engine returns plain strings, so inventing a
+score for them would be fiction.
 
 ## Repository layout
 
@@ -28,12 +46,14 @@ PATCHES.md                     Full change log: what changed, why, and what was 
 
 ## Install
 
-The overlay targets pi-agent-desktop **v0.7.1** (`main@6fcd7d4`, pi-web v0.10.0).
+The overlay targets pi-agent-desktop **v0.7.1** — tag `v0.7.1` (commit `9519ce4`). The
+`6fcd7d4` commit referenced in older versions of these notes is the *pi-web* baseline this fork
+merged (pi-web v0.10.0), not a pi-agent-desktop commit: checking it out gives you pi-web.
 
 ```bash
 git clone https://github.com/abcwyc/pi-agent-desktop.git
 cd pi-agent-desktop
-git checkout 6fcd7d4        # the verified baseline
+git checkout v0.7.1        # the verified baseline
 
 # 1. Apply the block-level edits to upstream files
 git apply /path/to/upstream-file-patches.diff
@@ -48,7 +68,8 @@ npm test                    # expect 2864 passing
 ```
 
 The last two steps are the ones that matter: if `tsc` and `npm test` both come back clean,
-the overlay applied correctly.
+the overlay applied correctly. Both were re-run on a clean worktree of `v0.7.1` for the
+current revision — `tsc --noEmit` clean, **2864 tests passing, 0 failing**.
 
 ### Building the desktop app
 
@@ -64,6 +85,9 @@ Two build caveats worth knowing, both documented in `PATCHES.md`:
   cannot start. Download Node 22 from nodejs.org and put it first on `PATH`.
 - **Unset `__NEXT_PRIVATE_STANDALONE_CONFIG` before building.** A running Pi Agent exports it,
   and Next.js then skips config defaulting, failing with `TypeError: generate is not a function`.
+- **`tauri build` ends with a signing error when no updater private key is set.** The `.app`
+  bundle is already produced at that point, so the build is usable; only the updater signature
+  is skipped.
 
 ## Staying in sync with upstream
 
@@ -81,5 +105,5 @@ fork-owned in `scripts/fork-ownership.json`.
 
 MIT — see [LICENSE](LICENSE).
 
-This overlay contains modified files from two MIT-licensed projects; their notices are
+This overlay contains modified files from three MIT-licensed projects; their notices are
 preserved in [THIRD-PARTY-NOTICES.md](THIRD-PARTY-NOTICES.md).

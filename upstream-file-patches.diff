@@ -1,18 +1,22 @@
 diff --git a/app/layout.tsx b/app/layout.tsx
-index e9e3fbb..4a82ecf 100644
+index e9e3fbb..f111ff0 100644
 --- a/app/layout.tsx
 +++ b/app/layout.tsx
-@@ -8,6 +8,8 @@ import "./settings.css";
+@@ -8,6 +8,12 @@ import "./settings.css";
  // Fork-local restyle layer — must come after the upstream stylesheets so its
  // equal-specificity rules win the cascade. See app/native-theme.css.
  import "./native-theme.css";
 +// CDS overlay styles for the follow-up suggestion chips (SuggestionChips).
 +import "@/components/cds-overlay.css";
++// Beautiful UI element layer (hairline ring, radius ramp, motion primitives)
++// for the redesigned suggestion card and task panel. Loaded after CDS so its
++// component rules win where both define the same class.
++import "@/components/bui-overlay.css";
  import { PRODUCT_NAME } from "@/lib/branding";
  
  const notoSansMono = Noto_Sans_Mono({
 diff --git a/components/ChatInput.tsx b/components/ChatInput.tsx
-index 7bb6624..b33368b 100644
+index 7bb6624..2dcb6d7 100644
 --- a/components/ChatInput.tsx
 +++ b/components/ChatInput.tsx
 @@ -30,6 +30,8 @@ import { resolveSessionReferences } from "@/lib/session-reference";
@@ -24,22 +28,23 @@ index 7bb6624..b33368b 100644
  import { FolderIcon, getFileIcon } from "./FileIcons";
  import { ImagePreview } from "./ImagePreview";
  import { useIsMobile } from "@/hooks/useIsMobile";
-@@ -887,6 +889,14 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
+@@ -887,6 +889,15 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
    const historyMenuRef = useRef<HTMLDivElement>(null);
    const isComposingRef = useRef(false);
    const lastCompositionEndAtRef = useRef(0);
 +  // Ghost text (phase 2 overlay): inline history-prefix completion. Engine
 +  // and rendering live in ./GhostTextOverlay + lib/ghost-text; ChatInput only
-+  // wires change events, the Tab accept, and the suppress conditions.
++  // wires the suppress conditions, the Tab accept and the hint element.
 +  const ghost = useGhostText(
 +    () => textareaRef.current,
 +    inputHistory,
 +    Boolean(isStreaming) || isComposingRef.current || slashMenuOpen || atMenuOpen || hashMenuOpen || historyMenuOpen,
++    value,
 +  );
    const slashCommandsRequestedRef = useRef(false);
    const slashMenuRef = useRef<HTMLDivElement>(null);
    const slashItemRefs = useRef<Array<HTMLButtonElement | null>>([]);
-@@ -1163,10 +1173,11 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
+@@ -1163,10 +1174,11 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
      if (draftKey) clearDraft(draftKey);
      if (draftKeyRef.current && draftKeyRef.current !== draftKey) clearDraft(draftKeyRef.current);
      clearImages();
@@ -52,7 +57,7 @@ index 7bb6624..b33368b 100644
  
    useEffect(() => {
      if (!draftKey || draftKeyRef.current !== draftKey) return;
-@@ -1841,6 +1852,30 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
+@@ -1841,6 +1853,30 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
          return;
        }
  
@@ -83,7 +88,7 @@ index 7bb6624..b33368b 100644
        if (sendShortcut) {
          e.preventDefault();
          if (isStreaming && (onSteer || onFollowUp)) {
-@@ -1850,7 +1885,7 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
+@@ -1850,7 +1886,7 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
          }
        }
      },
@@ -92,7 +97,7 @@ index 7bb6624..b33368b 100644
    );
  
    const handleInput = useCallback(() => {
-@@ -2740,6 +2775,7 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
+@@ -2740,6 +2776,7 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
              ref={textareaRef}
              className="chat-input-textarea"
              aria-label={compact ? t("chat.quoteQuestion") : undefined}
@@ -100,7 +105,7 @@ index 7bb6624..b33368b 100644
              value={value}
              onChange={(e) => {
                valueRef.current = e.target.value;
-@@ -2747,15 +2783,18 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
+@@ -2747,15 +2784,18 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
                setHistoryMenuOpen(false);
                updateAtQuery(e.target.value, e.target.selectionStart);
                updateHashQuery(e.target.value, e.target.selectionStart);
@@ -119,7 +124,7 @@ index 7bb6624..b33368b 100644
              }}
              onCompositionEnd={(e) => {
                isComposingRef.current = false;
-@@ -2763,6 +2802,7 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
+@@ -2763,6 +2803,7 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
                const el = e.currentTarget;
                updateAtQuery(el.value, el.selectionStart);
                updateHashQuery(el.value, el.selectionStart);
@@ -127,31 +132,24 @@ index 7bb6624..b33368b 100644
              }}
              onInput={handleInput}
              onPaste={handlePaste}
-@@ -2792,6 +2832,22 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
+@@ -2792,6 +2833,15 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
                overflow: "auto",
              }}
            />
-+          {/* Ghost text layer (phase 2 overlay). Positioned via the anchor
-+              textarea's metrics; pointer-events none so typing is untouched. */}
-+          {ghost.ghost.completion && ghost.caretPosition && (
-+            <div className="ghost-text-layer" aria-hidden="true">
-+              <span
-+                className="ghost-text"
-+                style={{
-+                  position: "absolute",
-+                  left: ghost.caretPosition.left + 14,
-+                  top: ghost.caretPosition.top + 10,
-+                }}
-+              >
-+                {ghost.ghost.completion}
-+              </span>
-+            </div>
++          {/* Ghost text (phase 2 overlay), rebuilt: no caret measurement, so
++              it cannot be mispositioned. Rendered as a plain flex sibling of
++              the textarea; Tab accepts, see handleKeyDown. */}
++          {ghost.ghost.completion && (
++            <span className="ghost-text-hint" aria-hidden="true">
++              <kbd>Tab</kbd>
++              <span className="ghost-text-hint-word">{ghost.ghost.completion}</span>
++            </span>
 +          )}
  
            {isStreaming ? (
              <div style={{ display: "flex", alignItems: "center", gap: 6, flexShrink: 0, alignSelf: "flex-end" }}>
 diff --git a/components/ChatWindow.tsx b/components/ChatWindow.tsx
-index 6911167..36385c9 100644
+index 6911167..09f7f13 100644
 --- a/components/ChatWindow.tsx
 +++ b/components/ChatWindow.tsx
 @@ -39,6 +39,8 @@ import {
@@ -229,17 +227,18 @@ index 6911167..36385c9 100644
    const belowEditorWidgets = extensionWidgets.filter((widget) => widget.placement === "belowEditor");
    const hasExtensionStatus = formatExtensionStatusLine(extensionStatuses).length > 0;
  
-@@ -1268,6 +1311,9 @@ export function ChatWindow({ session, searchTarget, onSearchTargetHandled, initi
+@@ -1268,6 +1311,10 @@ export function ChatWindow({ session, searchTarget, onSearchTargetHandled, initi
          {extensionCustomUi && (
            <ExtensionCustomPanel key={extensionCustomUi.id} request={extensionCustomUi} waitingCount={waitingExtensionCustomUiCount} onInput={sendExtensionCustomInput} />
          )}
-+        {/* pi-todos: Claude Co-Work style task panel pinned to the chat area's
-+            top-right corner (state mirrored through get_state, no polling). */}
-+        <PiTodosPanel todos={piTodos?.todos ?? null} />
++        {/* pi-todos: task panel pinned to the chat area's
++            top-right corner (state mirrored through get_state, no polling).
++            `busy` only drives the live "Working" shimmer + progress rail. */}
++        <PiTodosPanel todos={piTodos?.todos ?? null} busy={sessionBusy} />
          {!isEmptyNew && <>
          <div
            ref={scrollContainerRef}
-@@ -1651,6 +1697,11 @@ export function ChatWindow({ session, searchTarget, onSearchTargetHandled, initi
+@@ -1651,6 +1698,11 @@ export function ChatWindow({ session, searchTarget, onSearchTargetHandled, initi
              </div>
            </div>
          )}

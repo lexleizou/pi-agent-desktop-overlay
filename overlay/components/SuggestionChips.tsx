@@ -1,19 +1,23 @@
 /**
- * SuggestionChips — follow-up suggestion chips shown above the composer.
+ * SuggestionChips — follow-up suggestion cards shown above the composer.
  *
  * Folder: components/SuggestionChips.tsx (new file — no upstream file touched)
  *
- * Follows the Claude Design System (CDS) visual language extracted by
- * open-claude-ui (MIT): CDS surface tokens, hairline border, Clay accent,
- * a CSS spring approximation for the entrance, and dark-mode parity via the
- * app's existing `html.dark` class. All colors live in cds-overlay.css —
- * this file carries layout only.
+ * Redesign (2026-10-17): rebuilt as a recommendation CARD in the structure of
+ * beautifului.dev's `RecommendationCard` (MIT, © 2026 Shane Levine) — a card
+ * shell with a hairline ring, a header row with count, and one row per
+ * suggestion carrying an explicit accept affordance. The *look* stays Claude:
+ * quiet surfaces, Clay accent, no confidence gauge (the engine returns plain
+ * strings and this file will not invent a score for them).
  *
- * Interaction contract, tuned for a coding tool (more conservative than
- * ChatGPT's tap-to-send): tapping a chip fills the composer via the existing
- * chatInputRef.insertIfEmpty() handle — sending still needs the user's
- * Enter. Chips show only while the session is idle and hide as soon as the
- * user starts typing; clicking one also hides the row (one-shot).
+ * Interaction contract is unchanged and deliberately conservative for a
+ * coding tool: tapping a row fills the composer via the existing
+ * chatInputRef.insertIfEmpty() handle — sending still needs Enter. Rows show
+ * only while the session is idle and disappear as soon as the user types or
+ * a row is accepted (one-shot). Escape dismisses the card.
+ *
+ * Aesthetics come from components/bui-overlay.css (`.bui-card`, `.bui-row`);
+ * this file carries structure and behaviour only.
  */
 "use client";
 
@@ -46,7 +50,7 @@ export function SuggestionChips({ handleRef, onInsert, onFocusInput }: Suggestio
   const present = useCallback((next: string[]) => {
     setSuggestions(next);
     setEntered(false);
-    // Double rAF so the transition runs even when the row just mounted.
+    // Double rAF so the entrance transition runs even when the card just mounted.
     requestAnimationFrame(() => requestAnimationFrame(() => setEntered(true)));
   }, []);
 
@@ -57,7 +61,7 @@ export function SuggestionChips({ handleRef, onInsert, onFocusInput }: Suggestio
     };
   }, [handleRef, present, clear]);
 
-  // Escape hides the row; focus semantics stay with the composer.
+  // Escape dismisses the card; focus semantics stay with the composer.
   useEffect(() => {
     if (!suggestions || suggestions.length === 0) return;
     const onKey = (event: KeyboardEvent) => {
@@ -77,28 +81,45 @@ export function SuggestionChips({ handleRef, onInsert, onFocusInput }: Suggestio
 
   return (
     <div
-      className="suggestion-chips"
+      className="suggestion-chips bui-card"
       data-entered={entered ? "true" : "false"}
       aria-live="polite"
       data-testid="suggestion-chips"
+      role="group"
+      aria-label="Follow-up suggestions"
     >
-      {suggestions.map((text, index) => (
-        <button
-          key={`${index}-${text}`}
-          type="button"
-          className="suggestion-chip"
-          onClick={() => {
-            onInsert(text);
-            onFocusInput();
-            clear();
-          }}
-          title={text}
-          aria-label={`Use suggestion: ${text}`}
-        >
-          <span className="suggestion-chip-label">{text}</span>
-          <span className="suggestion-chip-arrow" aria-hidden="true">↑</span>
-        </button>
-      ))}
+      <div className="suggestion-card-head">
+        <span className="suggestion-card-title">
+          <span className="suggestion-card-spark" aria-hidden="true">✦</span>
+          Follow-ups
+        </span>
+        <span className="suggestion-card-count">
+          {suggestions.length}
+        </span>
+      </div>
+      <div className="suggestion-card-body">
+        {suggestions.map((text, index) => (
+          <button
+            key={`${index}-${text}`}
+            type="button"
+            className="suggestion-chip bui-row"
+            style={{ animationDelay: `${index * 40}ms` }}
+            onClick={() => {
+              onInsert(text);
+              onFocusInput();
+              clear();
+            }}
+            title={text}
+            aria-label={`Use suggestion: ${text}`}
+          >
+            <span className="suggestion-chip-index" aria-hidden="true">{index + 1}</span>
+            <span className="suggestion-chip-label">{text}</span>
+            <span className="suggestion-chip-arrow" aria-hidden="true" title="Insert into the composer">
+              ↵
+            </span>
+          </button>
+        ))}
+      </div>
     </div>
   );
 }

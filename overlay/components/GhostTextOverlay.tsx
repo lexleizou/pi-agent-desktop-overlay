@@ -1,27 +1,34 @@
 /**
- * Ghost text state + rendering helper hook (phase 2).
+ * Ghost text state hook (phase 2) — rebuilt 2026-10-17.
  *
  * Folder: components/GhostTextOverlay.tsx (new file — no upstream file touched)
  *
- * Renders the ghost completion inline after the caret. Technique: a wrapper
- * div (position: relative, supplied by ChatInput) contains the textarea plus
- * this absolutely-positioned overlay that mirrors the textarea's text layout
- * via a same-metrics "before" span — the standard caret-measurement approach.
+ * Two defects were found in the first implementation and are both removed
+ * here rather than patched:
  *
- * To keep the overlay simple and robust across theme changes, ChatInput
- * passes the caret (x, y) measured from the real DOM each time it changes;
- * this file only positions and renders. The engine lives in lib/ghost-text.
+ *  1. Positioning. It measured the caret with a hidden mirror element, so the
+ *     completion could render at the wrong offset (the layer's nearest
+ *     positioned ancestor is the outer `.chat-composer-wrap`, not the
+ *     textarea container) — and a failed measurement silently produced
+ *     nothing. This version does not measure at all: the completion is
+ *     rendered as a normal flex sibling of the textarea (see ChatInput), so
+ *     it can never be misplaced and needs no caret maths.
+ *  2. Triggering. It only recomputed from the textarea's own change/select
+ *     handlers; anything that changed the draft another way left the
+ *     completion stale, which read as "it only works once". The recompute is
+ *     now keyed on the draft value itself, and state updates are identity
+ *     -checked so recomputing cannot loop.
+ *
+ * The engine (prefix match over input history) lives in lib/ghost-text and is
+ * unchanged.
  */
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { computeGhostText, Debouncer, type GhostTextState } from "@/lib/ghost-text";
+import { computeGhostText, type GhostTextState } from "@/lib/ghost-text";
 
 export interface GhostTextController {
-  /**
-   * Recompute for the current textarea state. Call from onChange/onSelect.
-   * No-op while suppressed.
-   */
+  /** Recompute for the current textarea state. */
   update: () => void;
   /** Hide immediately (send, menu open, blur, streaming). */
   hide: () => void;
@@ -29,114 +36,68 @@ export interface GhostTextController {
   current: () => { completion: string; sourceLine: string } | null;
 }
 
-const DEBOUNCE_MS = 200;
+const EMPTY: GhostTextState = { completion: "" };
 
 export function useGhostText(
   getTextarea: () => HTMLTextAreaElement | null,
   inputHistory: string[],
   suppressed: boolean,
+  /** The draft value; recomputing is keyed on this so no edit source is missed. */
+  value: string,
 ): {
   controllerRef: React.MutableRefObject<GhostTextController | null>;
   ghost: GhostTextState;
-  caretPosition: { left: number; top: number } | null;
-  /** Measure and set caret position from the live textarea. */
-  measure: () => void;
   hide: () => void;
 } {
-  const [ghost, setGhost] = useState<GhostTextState>({ completion: "" });
-  const [caretPosition, setCaretPosition] = useState<{ left: number; top: number } | null>(null);
-  const ghostRef = useRef<GhostTextState>({ completion: "" });
-  const debouncerRef = useRef<Debouncer | null>(null);
+  const [ghost, setGhost] = useState<GhostTextState>(EMPTY);
+  const ghostRef = useRef<GhostTextState>(EMPTY);
 
-  useEffect(() => {
-    debouncerRef.current = new Debouncer(DEBOUNCE_MS);
-    return () => debouncerRef.current?.cancel();
+  // Latest inputs, read at call time. Reading them from refs keeps `compute`
+  // identity-stable, so the value-keyed effect cannot re-run in a loop.
+  const latest = useRef({ getTextarea, inputHistory, suppressed });
+  latest.current = { getTextarea, inputHistory, suppressed };
+
+  const apply = useCallback((next: GhostTextState) => {
+    const previous = ghostRef.current;
+    if (previous.completion === next.completion && previous.source === next.source) return;
+    ghostRef.current = next;
+    setGhost(next);
   }, []);
-
-  const compute = useCallback(() => {
-    const ta = getTextarea();
-    if (!ta || suppressed) return;
-    const state = computeGhostText(ta.value, ta.selectionStart ?? ta.value.length, inputHistory);
-    ghostRef.current = state;
-    setGhost(state);
-    if (state.completion) {
-      setCaretPosition(measureCaret(ta, ta.selectionStart ?? ta.value.length));
-    } else {
-      setCaretPosition(null);
-    }
-  }, [getTextarea, inputHistory, suppressed]);
 
   const hide = useCallback(() => {
-    debouncerRef.current?.cancel();
-    ghostRef.current = { completion: "" };
-    setGhost({ completion: "" });
-    setCaretPosition(null);
-  }, []);
+    apply(EMPTY);
+  }, [apply]);
 
-  const measure = useCallback(() => {
-    const ta = getTextarea();
-    if (!ta) return;
-    setCaretPosition(measureCaret(ta, ta.selectionStart ?? ta.value.length));
-  }, [getTextarea]);
+  const compute = useCallback(() => {
+    const { getTextarea: get, inputHistory: history, suppressed: isSuppressed } = latest.current;
+    if (isSuppressed) {
+      apply(EMPTY);
+      return;
+    }
+    const textarea = get();
+    if (!textarea) {
+      apply(EMPTY);
+      return;
+    }
+    const caret = textarea.selectionStart ?? textarea.value.length;
+    apply(computeGhostText(textarea.value, caret, history));
+  }, [apply]);
+
+  // Keyed on the draft value and the suppress flag: every edit path — typing,
+  // paste, draft restore, menu open, stream start — recomputes exactly once.
+  useEffect(() => {
+    compute();
+  }, [value, suppressed, compute]);
 
   const controllerRef = useRef<GhostTextController | null>(null);
   controllerRef.current = {
-    update: () => {
-      debouncerRef.current?.schedule(compute);
-    },
+    update: compute,
     hide,
-    current: () => ghostRef.current.completion ? { completion: ghostRef.current.completion, sourceLine: ghostRef.current.source ?? "" } : null,
+    current: () =>
+      ghostRef.current.completion
+        ? { completion: ghostRef.current.completion, sourceLine: ghostRef.current.source ?? "" }
+        : null,
   };
 
-  // Stand down while suppressed.
-  useEffect(() => {
-    if (suppressed) hide();
-  }, [suppressed, hide]);
-
-  return { controllerRef, ghost, caretPosition, measure, hide };
-}
-
-/**
- * Measure the caret's coordinates inside a textarea via a mirror element.
- * Standard technique: copy the text before the caret into a hidden div with
- * identical metrics, append a marker span, and read its offset. Returns
- * coordinates relative to the textarea's border box.
- */
-export function measureCaret(ta: HTMLTextAreaElement, caret: number): { left: number; top: number } {
-  let mirror = document.getElementById("ghost-text-mirror");
-  if (!mirror) {
-    mirror = document.createElement("div");
-    mirror.id = "ghost-text-mirror";
-    document.body.appendChild(mirror);
-  }
-  const style = mirror.style;
-  const taStyle = getComputedStyle(ta);
-
-  style.position = "absolute";
-  style.visibility = "hidden";
-  style.whiteSpace = "pre-wrap";
-  style.wordWrap = "break-word";
-  style.boxSizing = "border-box";
-
-  const props = [
-    "fontSize", "lineHeight", "fontFamily", "fontWeight", "fontStyle",
-    "letterSpacing", "paddingTop", "paddingRight", "paddingBottom", "paddingLeft",
-    "borderTopWidth", "borderRightWidth", "borderBottomWidth", "borderLeftWidth",
-    "tabSize", "textTransform",
-  ] as const;
-  for (const prop of props) {
-    style[prop] = taStyle[prop] as unknown as string;
-  }
-  style.width = `${ta.clientWidth}px`;
-
-  mirror.textContent = ta.value.slice(0, caret);
-  const marker = document.createElement("span");
-  marker.textContent = "​"; // zero-width space keeps the span from collapsing
-  mirror.appendChild(marker);
-
-  const mirrorRect = mirror.getBoundingClientRect();
-  const markerRect = marker.getBoundingClientRect();
-  const left = markerRect.left - mirrorRect.left - ta.scrollLeft;
-  const top = markerRect.top - mirrorRect.top - ta.scrollTop;
-  return { left, top };
+  return { controllerRef, ghost, hide };
 }

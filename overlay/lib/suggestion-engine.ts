@@ -27,7 +27,6 @@ import {
   type Model,
   type SimpleStreamOptions,
 } from "@earendil-works/pi-ai";
-import { completeSimple } from "@earendil-works/pi-ai/compat";
 
 const SUGGESTION_TIMEOUT_MS = 30_000;
 const SUGGESTION_MAX_TOKENS = 220;
@@ -290,8 +289,15 @@ export async function generateSuggestions(source: Agent): Promise<GeneratedSugge
 
   const timeout = setTimeout(() => controller.abort(), SUGGESTION_TIMEOUT_MS);
   try {
-    const message = await completeSimple(model, normalizeContext(context), requestOptions);
-    return suggestionsFromAssistant(message);
+    // Route through the session's own streamFunction rather than the standalone
+    // `completeSimple` from pi-ai/compat. compat resolves credentials from a
+    // fixed provider→env-var table (getEnvApiKey), which has no entry for a
+    // custom provider such as the local `magpie` gateway, so every call failed
+    // with "No API key for provider: magpie". The session-bound function already
+    // carries the resolved auth from models.json, which is how the session
+    // title path (lib/session-title.ts) has always worked.
+    const stream = await source.streamFunction(model, normalizeContext(context), requestOptions);
+    return suggestionsFromAssistant(await stream.result());
   } finally {
     clearTimeout(timeout);
   }

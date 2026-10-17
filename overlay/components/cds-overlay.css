@@ -128,57 +128,12 @@ html.dark {
 }
 
 /* ==========================================================================
-   Ghost text (phase 2) — inline composer completion
-   Rendered inside the composer's relative wrapper, positioned by
-   GhostTextOverlay's caret measurement. CDS-consistent: muted ink, no box.
+   Ghost text (phase 2) — composer completion hint
+   Rebuilt 2026-10-17: the caret-measured inline layer was removed (it could
+   be mispositioned and needed mirror maths). The completion is now a plain
+   flex sibling of the textarea, so its styles live in bui-overlay.css next to
+   the other redesigned elements. Nothing to style here.
    ========================================================================== */
-
-.ghost-text {
-  color: var(--cds-text-muted);
-  opacity: 0.75;
-  white-space: pre-wrap;
-  word-wrap: break-word;
-  font: inherit;
-  pointer-events: none;
-  user-select: none;
-}
-
-.ghost-text-hint {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  margin-left: 12px;
-  padding: 1px 8px;
-  border-radius: var(--df-radius-pill, 999px);
-  border: 1px solid var(--cds-border);
-  color: var(--cds-text-muted);
-  font-size: 11px;
-  line-height: 1.6;
-  pointer-events: none;
-  user-select: none;
-  opacity: 0.9;
-}
-
-.ghost-text-hint kbd {
-  font-family: inherit;
-  font-size: 10px;
-  font-weight: 600;
-  padding: 0 4px;
-  border-radius: 3px;
-  border: 1px solid var(--cds-border-strong);
-  background: var(--cds-surface-2);
-  color: var(--cds-text-secondary);
-}
-
-/* The ghost layer sits inside the composer's relative wrapper; the textarea
-   itself stays untouched. The overlay draws AFTER the textarea in DOM order
-   so it paints on top. */
-.ghost-text-layer {
-  position: absolute;
-  inset: 0;
-  overflow: hidden;
-  pointer-events: none;
-}
 
 
 /* ==========================================================================
