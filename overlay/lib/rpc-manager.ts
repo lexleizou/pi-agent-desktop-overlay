@@ -46,6 +46,8 @@ import { isBuiltInSubagentsEnabled } from "./subagent-settings";
 import { resolveShellTools } from "./powershell-settings";
 import { CHAT_ONLY_RESOURCE_LOADER_OPTIONS, contextFilesSystemPrompt } from "./chat-only";
 import { createExactSystemPromptExtension } from "./exact-system-prompt";
+import { createOutputLanguageExtension } from "./output-language-extension";
+import { normalizeOutputLanguage, type OutputLanguage } from "./output-language";
 import { createArtifactGuideExtension } from "./artifact-guide-extension";
 import { piTodosFromEvent, reconstructPiTodos } from "./pi-todos";
 import { createPiWebBuiltinExtensions } from "./builtin-extensions";
@@ -344,6 +346,13 @@ export class AgentSessionWrapper {
   // Set when shutdown() starts. The SDK session stays usable until destroy(),
   // but lookups must treat the wrapper as gone from this point on.
   private closing = false;
+
+  /**
+   * Fork overlay: reply language for this session's runs. Read on every run by
+   * createOutputLanguageExtension and written from each prompt command, so the
+   * Settings choice applies to the next message in an already-open session.
+   */
+  public outputLanguage: { current: OutputLanguage } = { current: "auto" };
 
   constructor(
     public readonly inner: AgentSessionLike,
@@ -804,6 +813,7 @@ export class AgentSessionWrapper {
 
       switch (type) {
       case "prompt": {
+        this.outputLanguage.current = normalizeOutputLanguage(command.outputLanguage);
         // Serialize only admission. Once the preceding prompt has either
         // passed or failed preflight, the SDK can atomically decide whether
         // this submission starts a run or joins its streaming queue.
@@ -1202,12 +1212,14 @@ export class AgentSessionWrapper {
       }
 
       case "steer": {
+        this.outputLanguage.current = normalizeOutputLanguage(command.outputLanguage);
         const steerImages = command.images as Array<{ type: "image"; data: string; mimeType: string }> | undefined;
         await this.inner.steer(command.message as string, steerImages?.length ? steerImages : undefined);
         return null;
       }
 
       case "follow_up": {
+        this.outputLanguage.current = normalizeOutputLanguage(command.outputLanguage);
         const followImages = command.images as Array<{ type: "image"; data: string; mimeType: string }> | undefined;
         await this.inner.followUp(command.message as string, followImages?.length ? followImages : undefined);
         return null;
@@ -2706,6 +2718,8 @@ export async function startRpcSession(
     const builtins = subagentResources || chatOnly
       ? undefined
       : await createPiWebBuiltinExtensions({ agentDir });
+    const outputLanguageHolder: { current: OutputLanguage } = { current: "auto" };
+    const outputLanguageExtension = createOutputLanguageExtension(() => outputLanguageHolder.current);
     const services = await createAgentSessionServices({
       cwd: sessionCwd,
       agentDir,
@@ -2742,6 +2756,8 @@ export async function startRpcSession(
                 () => listSubagentProfiles(sessionCwd),
                 isBuiltInSubagentsEnabled,
               ),
+              // Fork overlay: reply-language directive, appended per run.
+              outputLanguageExtension,
             ],
             extensionsOverride: (base) => preferUserBashExtension(preferPiWebSubagentExtension(base)),
           },
@@ -2823,6 +2839,7 @@ export async function startRpcSession(
       suppressCompletionNotifications: Boolean(subagentResources),
       ...(builtins?.mcpHost ? { mcpHost: builtins.mcpHost } : {}),
     });
+    wrapper.outputLanguage = outputLanguageHolder;
     const realSessionId = inner.sessionId as string;
     registerRpcWrapper(wrapper);
 

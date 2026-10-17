@@ -27,6 +27,7 @@ import { getPreferredToolPreset, setPreferredToolPreset } from "@/lib/tool-prese
 import { CONFIGURED_TOOL_PRESET, getPresetFromToolNames, getToolNamesForPreset, type ToolEntry, type ToolPreset } from "@/lib/tool-presets";
 import type { SessionStatsInfo } from "@/lib/pi-types";
 import { mergeSessionStats, type SessionFileStats } from "@/lib/session-stats";
+import { readOutputLanguage } from "@/hooks/useOutputLanguage";
 import { userMessageKey } from "@/lib/prompt-recovery";
 import { AgentEventConnection } from "@/lib/agent-event-connection";
 import { isNestedToolExecutionEvent, isSystemMessageEvent } from "@/lib/agent-event-wire";
@@ -2009,6 +2010,9 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
         await sendAgentCommand(sid, {
           type: "prompt",
           message,
+          // Fork overlay: the reply language travels with the prompt, so a
+          // Settings change applies to the next message (no session restart).
+          outputLanguage: readOutputLanguage(),
           ...(piImages?.length ? { images: piImages } : {}),
         });
         promoteNewSession(1, message);
@@ -2019,6 +2023,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
         await sendAgentCommand(session.id, {
           type: "prompt",
           message,
+          outputLanguage: readOutputLanguage(),
           ...(piImages?.length ? { images: piImages } : {}),
         });
       } else {
@@ -2617,6 +2622,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
         type: "prompt",
         message,
         streamingBehavior: behavior,
+        outputLanguage: readOutputLanguage(),
         ...(piImages?.length ? { images: piImages } : {}),
       });
     } catch (e) {

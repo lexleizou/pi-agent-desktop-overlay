@@ -224,6 +224,35 @@ composer spacer 同步把聊天滚到底——刚发的问题直接被顶出视�
   - 再滚回底部 → bar 重新出现。
 - `npx tsc --noEmit` 通过；`npm test` → **2866 pass / 0 fail**。
 
+第十五期（2026-10-17）：**Settings → Chat 新增「回复语言」：跟随模型 / 强制中文 / 强制英文。**
+
+- 来源：Lex 问能不能有个菜单选择是否强制中文输出、还是按模型自定义。
+- 为什么不把指令塞进用户消息：那样会出现在对话记录里，且模型很容易忽略。指令必须落在
+  **系统提示词**里才压得住模型自身习惯与 AGENTS.md。
+- 机制：`before_agent_start` 钩子是唯一还能改提示词的时机——它收到已经渲染好的提示词，
+  返回的 `systemPrompt` 会替换本次运行的提示词。新增 `lib/output-language-extension.ts`
+  在收到的文本**后面追加**一段指令，因此工具、上下文文件、项目规则等其它段落原样保留
+  （与 `lib/exact-system-prompt.ts` 同一机制）。
+- 生效方式（关键）：语言值**随每条 prompt 命令上传**（`outputLanguage` 字段），服务端把它
+  存在会话包装器上，钩子每次运行读取——所以改设置**对已打开的会话从下一条消息就生效**，
+  不需要重开会话，也不需要服务端再存一份配置；数值持久化在浏览器 localStorage。
+- UI：Settings → Chat 里用与「diff 视图」同款的单选按钮组（跟随模型 / 强制中文 / 强制英文），
+  三语言 i18n 同步。
+- 实测（真实会话，非只看代码）：
+  - 在钩子里临时打点，服务端日志显示 `appending directive language=zh-CN basePromptChars=28466`
+    ——带 `outputLanguage` 的那条触发且保留了 28466 字符的原始提示词；**不带（auto）的那条没有打点**，
+    说明只有强制模式才改动提示词。
+  - 行为验证：全局 `~/.pi/agent/AGENTS.md` 要求中文的前提下，强制 `en` 后模型用英文回答了
+    「用一句话说明电阻是什么」（"A resistor is a passive component that limits the flow of
+    electric current…"），说明指令确实生效且优先级高于 AGENTS.md；打点也记录 `language=en`。
+  - 打点已移除。
+- 新增 `lib/output-language.test.mjs`（6 条）：归一化（未设置/未知值→auto，不猜语言）、
+  只有强制模式产生指令、追加时保留原提示词头部、auto 不动提示词、**切换语言在下一次运行生效**、
+  已带标记时不重复追加。
+- 顺带：`lib/rpc-manager.ts` 里 overlay 扩展故意排在 SDK 内建扩展**之后**，这样上游那条断言
+  内建扩展顺序的测试无需改动；`components/SettingsPanel.test.mjs` 的聊天选项计数按实际从 6 改为 7。
+- `npx tsc --noEmit` 通过；`npm test` → **2872 pass / 0 fail**（2866 + 新增 6）。
+
 日期：2026-10-16（六期、七期为 2026-10-17 追加，八、九期为 2026-10-17 追加）
 基线：abcwyc/pi-agent-desktop **v0.7.1**（tag `v0.7.1` = `9519ce4c1c2e504ba1d0aaaddcfed6ea8e49d0b3`；上游 pi-web v0.10.0 合并至
 `6fcd7d4`，该 SHA 是 pi-web 的提交，不是 pi-agent-desktop 的）

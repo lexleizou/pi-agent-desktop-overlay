@@ -991,6 +991,72 @@ index 4a9720b..e79b428 100644
            ...(ctx?.contextWindow ? [[translate("session.context"), `${ctx.percent !== null ? `${ctx.percent.toFixed(1)}%` : "?"} / ${formatCompact(ctx.contextWindow)}`]] : []),
          ];
          const section = (
+diff --git a/components/SettingsPanel.test.mjs b/components/SettingsPanel.test.mjs
+index 0546194..61c1541 100644
+--- a/components/SettingsPanel.test.mjs
++++ b/components/SettingsPanel.test.mjs
+@@ -182,8 +182,9 @@ test("groups chat display controls together without row backgrounds", () => {
+   assert.doesNotMatch(appearanceSection, /settings-chat-content/);
+   assert.match(chatSection, /className="settings-chat-options"/);
+   // The fork's diffViewMode choice rides in the same group after the merged
+-  // send-mode radio (thinking, width, font, quote, send mode, diff view).
+-  assert.equal((chatSection.match(/className="settings-chat-option(?: |")/g) ?? []).length, 6);
++  // send-mode radio, and its reply-language choice leads the group
++  // (language, thinking, width, font, quote, send mode, diff view).
++  assert.equal((chatSection.match(/className="settings-chat-option(?: |")/g) ?? []).length, 7);
+   assert.equal((chatSection.match(/<ConfigSwitch/g) ?? []).length, 2);
+   for (const key of ["thinkingExpandedDefault", "chatContentWidth", "chatContentFontSize", "quoteSelection", "enterSendMode", "enterSendModeEnter", "enterSendModeCtrlEnter"]) {
+     assert.match(chatSection, new RegExp(`t\\("settings\\.${key}"\\)`));
+diff --git a/components/SettingsPanel.tsx b/components/SettingsPanel.tsx
+index 2caaf11..bba879a 100644
+--- a/components/SettingsPanel.tsx
++++ b/components/SettingsPanel.tsx
+@@ -17,6 +17,7 @@ import {
+   CHAT_CONTENT_FONT_SIZE_MIN,
+   useChatAppearance,
+ } from "@/hooks/useChatAppearance";
++import { useOutputLanguage } from "@/hooks/useOutputLanguage";
+ import { useEnterSendMode, setEnterSendMode } from "@/hooks/useEnterSendMode";
+ import { sendAgentCommand } from "@/lib/agent-client";
+ import type { ProjectTrustStatus, ToolSettingsResponse } from "@/lib/api-types";
+@@ -92,6 +93,7 @@ function GeneralSettings({
+   const { preference, setThemePreference } = useTheme();
+   const { mode: diffViewMode, setMode: setDiffViewMode } = useDiffViewMode();
+   const { width: chatContentWidth, setWidth: setChatContentWidth, fontSize, setFontSize } = useChatAppearance();
++  const { outputLanguage, setOutputLanguage } = useOutputLanguage();
+   const desktop = isTauriDesktop();
+   const enterSendMode = useEnterSendMode();
+   const [shellSettings, setShellSettings] = useState<ToolSettingsResponse | null>(null);
+@@ -232,6 +234,29 @@ function GeneralSettings({
+                   }}
+                 />
+               </div>
++              {/* Fork overlay: reply language — the model's own choice, or a
++                  directive appended to the system prompt of every run. */}
++              <div className="settings-chat-option settings-chat-choice-option">
++                <span title={t("settings.outputLanguageHint")}>{t("settings.outputLanguage")}</span>
++                <div className="settings-choice-group" role="radiogroup" aria-label={t("settings.outputLanguage")}>
++                  {([
++                    ["auto", "settings.outputLanguageAuto"],
++                    ["zh-CN", "settings.outputLanguageZh"],
++                    ["en", "settings.outputLanguageEn"],
++                  ] as const).map(([value, labelKey]) => (
++                    <button
++                      key={value}
++                      type="button"
++                      role="radio"
++                      aria-checked={outputLanguage === value}
++                      className={`config-button config-button-small ${outputLanguage === value ? "config-button-primary" : "config-button-secondary"}`}
++                      onClick={() => setOutputLanguage(value)}
++                    >
++                      {t(labelKey)}
++                    </button>
++                  ))}
++                </div>
++              </div>
+               <div className="settings-chat-option settings-chat-range-option">
+                 <div className="settings-chat-range-header">
+                   <label htmlFor="settings-chat-content-width">{t("settings.chatContentWidth")}</label>
 diff --git a/hooks/useAgentSession.test.mjs b/hooks/useAgentSession.test.mjs
 index cc061fe..3b39a15 100644
 --- a/hooks/useAgentSession.test.mjs
@@ -1010,10 +1076,18 @@ index cc061fe..3b39a15 100644
    assert.match(chatWindowSource, /const promptAnchorAdjustmentDoneRef = useRef\(false\)/);
    assert.match(chatWindowSource, /promptAnchorAdjustmentDoneRef\.current = false/);
 diff --git a/hooks/useAgentSession.ts b/hooks/useAgentSession.ts
-index 8b60425..5a5a6c4 100644
+index 8b60425..bb51d4e 100644
 --- a/hooks/useAgentSession.ts
 +++ b/hooks/useAgentSession.ts
-@@ -98,6 +98,7 @@ interface LastAssistantTextResponse {
+@@ -27,6 +27,7 @@ import { getPreferredToolPreset, setPreferredToolPreset } from "@/lib/tool-prese
+ import { CONFIGURED_TOOL_PRESET, getPresetFromToolNames, getToolNamesForPreset, type ToolEntry, type ToolPreset } from "@/lib/tool-presets";
+ import type { SessionStatsInfo } from "@/lib/pi-types";
+ import { mergeSessionStats, type SessionFileStats } from "@/lib/session-stats";
++import { readOutputLanguage } from "@/hooks/useOutputLanguage";
+ import { userMessageKey } from "@/lib/prompt-recovery";
+ import { AgentEventConnection } from "@/lib/agent-event-connection";
+ import { isNestedToolExecutionEvent, isSystemMessageEvent } from "@/lib/agent-event-wire";
+@@ -98,6 +99,7 @@ interface LastAssistantTextResponse {
  
  type AgentStateResponse = {
    model?: { provider: string; id: string };
@@ -1021,7 +1095,7 @@ index 8b60425..5a5a6c4 100644
    contextUsage?: { percent: number | null; contextWindow: number; tokens: number | null } | null;
    systemPrompt?: string;
    thinkingLevel?: string;
-@@ -452,6 +453,8 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
+@@ -452,6 +454,8 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
    const [extensionCustomUis, setExtensionCustomUis] = useState<ExtensionUiCustomRequest[]>([]);
    const [extensionStatuses, setExtensionStatuses] = useState<ExtensionStatusItem[]>([]);
    const [extensionWidgets, setExtensionWidgets] = useState<ExtensionWidgetItem[]>([]);
@@ -1030,7 +1104,7 @@ index 8b60425..5a5a6c4 100644
    const [queuedMessages, setQueuedMessages] = useState<QueuedMessages>({ steering: [], followUp: [] });
  
    const eventConnectionRef = useRef<AgentEventConnection | null>(null);
-@@ -648,6 +651,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
+@@ -648,6 +652,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
      setSystemPrompt(null);
      setExtensionStatuses([]);
      setExtensionWidgets([]);
@@ -1038,7 +1112,7 @@ index 8b60425..5a5a6c4 100644
      setQueuedMessages({ steering: [], followUp: [] });
      setLiveModel(null);
      setRoutedModel(null);
-@@ -911,6 +915,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
+@@ -911,6 +916,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
            if (liveState.systemPrompt !== undefined) setSystemPrompt(liveState.systemPrompt ?? null);
            if (liveState.extensionStatuses !== undefined) setExtensionStatuses(liveState.extensionStatuses ?? []);
            if (liveState.extensionWidgets !== undefined) setExtensionWidgets(liveState.extensionWidgets ?? []);
@@ -1046,7 +1120,7 @@ index 8b60425..5a5a6c4 100644
            if (liveState.queuedMessages !== undefined) setQueuedMessages(normalizeQueuedMessages(liveState.queuedMessages));
          } else if (!agentState.running) {
            setQueuedMessages({ steering: [], followUp: [] });
-@@ -1891,6 +1896,10 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
+@@ -1891,6 +1897,10 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
        case "thinking_level_changed":
          setLiveThinkingLevel(asConcreteThinkingLevel(event.level as string));
          break;
@@ -1057,7 +1131,33 @@ index 8b60425..5a5a6c4 100644
        case "session_info_changed":
          // Renames from other windows/extensions arrive here; the server bumps
          // sessionListVersion on this event, so the sidebar refreshes itself.
-@@ -2667,6 +2676,29 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
+@@ -2000,6 +2010,9 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
+         await sendAgentCommand(sid, {
+           type: "prompt",
+           message,
++          // Fork overlay: the reply language travels with the prompt, so a
++          // Settings change applies to the next message (no session restart).
++          outputLanguage: readOutputLanguage(),
+           ...(piImages?.length ? { images: piImages } : {}),
+         });
+         promoteNewSession(1, message);
+@@ -2010,6 +2023,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
+         await sendAgentCommand(session.id, {
+           type: "prompt",
+           message,
++          outputLanguage: readOutputLanguage(),
+           ...(piImages?.length ? { images: piImages } : {}),
+         });
+       } else {
+@@ -2608,6 +2622,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
+         type: "prompt",
+         message,
+         streamingBehavior: behavior,
++        outputLanguage: readOutputLanguage(),
+         ...(piImages?.length ? { images: piImages } : {}),
+       });
+     } catch (e) {
+@@ -2667,6 +2682,29 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
      }
    }, [opts.chatInputRef, addNotice]);
  
@@ -1087,7 +1187,7 @@ index 8b60425..5a5a6c4 100644
    const handleThinkingLevelChange = useCallback(async (level: ThinkingLevelOption) => {
      if (level === "auto") {
        thinkingLevelOverrideRef.current = null;
-@@ -2887,6 +2919,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
+@@ -2887,6 +2925,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
            if (agentState.state.systemPrompt !== undefined) setSystemPrompt(agentState.state.systemPrompt ?? null);
            if (agentState.state.extensionStatuses !== undefined) setExtensionStatuses(agentState.state.extensionStatuses ?? []);
            if (agentState.state.extensionWidgets !== undefined) setExtensionWidgets(agentState.state.extensionWidgets ?? []);
@@ -1095,7 +1195,7 @@ index 8b60425..5a5a6c4 100644
            if (agentState.state.queuedMessages !== undefined) setQueuedMessages(normalizeQueuedMessages(agentState.state.queuedMessages));
          }
        });
-@@ -3116,7 +3149,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
+@@ -3116,7 +3155,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
      retryInfo, contextUsage, systemPrompt, forkingEntryId, retryLoad, dismissModelScopeWarnings,
      isCompacting, compactError, compactNotice, compactResult, currentModel, displayModel, modelSwitching, sessionStats,
      slashCommands, slashCommandsLoading, queuedMessages,
@@ -1104,7 +1204,7 @@ index 8b60425..5a5a6c4 100644
      isAutoModelSelection: isNew && newSessionModel === null,
      isAutoThinkingSelection: isNew && newSessionThinkingLevel === null,
      defaultModel: newSessionDefaultModel,
-@@ -3134,6 +3167,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
+@@ -3134,6 +3173,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
      handleSend, handleAbort, handleAbortRetry, handleFork, handleNavigate, handleModelChange,
      handleCompact, handleSteer, handleFollowUp, handlePromptWithStreamingBehavior, handleAbortCompaction,
      handleRecallQueue,
@@ -1113,10 +1213,22 @@ index 8b60425..5a5a6c4 100644
      handleEditContent,
      // Present only while a history edit is pending.
 diff --git a/lib/i18n/messages/en.ts b/lib/i18n/messages/en.ts
-index 54cecf5..834dd3f 100644
+index 54cecf5..99c8ec5 100644
 --- a/lib/i18n/messages/en.ts
 +++ b/lib/i18n/messages/en.ts
-@@ -477,7 +477,12 @@ export const enLocale: LocalePlugin = {
+@@ -16,6 +16,11 @@ export const enLocale: LocalePlugin = {
+     "settings.general": "General",
+     "settings.appearance": "Appearance",
+     "settings.chatContentWidth": "Chat content width",
++    "settings.outputLanguage": "Reply language",
++    "settings.outputLanguageAuto": "Model default",
++    "settings.outputLanguageZh": "Force Chinese",
++    "settings.outputLanguageEn": "Force English",
++    "settings.outputLanguageHint": "Appended to the system prompt of every run, so it outranks the model's own habits. Applies from the next message.",
+     "settings.chatContentFontSize": "Chat font size",
+     "settings.resetChatContentWidth": "Reset chat content width",
+     "settings.resetChatContentFontSize": "Reset chat font size",
+@@ -477,7 +482,12 @@ export const enLocale: LocalePlugin = {
      "chat.extensionWidgetLines": "{count} lines",
      "chat.close": "Close",
      "chat.queued": "Queued · {count}",
@@ -1131,10 +1243,22 @@ index 54cecf5..834dd3f 100644
      "chat.retrying": "Retrying ({attempt}/{max})…",
      "chat.loadingCommands": "Loading commands...",
 diff --git a/lib/i18n/messages/zh-CN.ts b/lib/i18n/messages/zh-CN.ts
-index 5af0e43..e9686d5 100644
+index 5af0e43..5009cb4 100644
 --- a/lib/i18n/messages/zh-CN.ts
 +++ b/lib/i18n/messages/zh-CN.ts
-@@ -477,7 +477,12 @@ export const zhCNLocale: LocalePlugin = {
+@@ -16,6 +16,11 @@ export const zhCNLocale: LocalePlugin = {
+     "settings.general": "常规",
+     "settings.appearance": "外观",
+     "settings.chatContentWidth": "聊天内容宽度",
++    "settings.outputLanguage": "回复语言",
++    "settings.outputLanguageAuto": "跟随模型",
++    "settings.outputLanguageZh": "强制中文",
++    "settings.outputLanguageEn": "强制英文",
++    "settings.outputLanguageHint": "会追加到每次运行的系统提示词末尾，优先级高于模型自身习惯；设置后从下一条消息开始生效。",
+     "settings.chatContentFontSize": "聊天字体大小",
+     "settings.resetChatContentWidth": "重置聊天内容宽度",
+     "settings.resetChatContentFontSize": "重置聊天字体大小",
+@@ -477,7 +482,12 @@ export const zhCNLocale: LocalePlugin = {
      "chat.extensionWidgetLines": "{count} 行",
      "chat.close": "关闭",
      "chat.queued": "已排队 · {count}",
@@ -1149,10 +1273,22 @@ index 5af0e43..e9686d5 100644
      "chat.retrying": "正在重试（{attempt}/{max}）…",
      "chat.loadingCommands": "正在加载命令...",
 diff --git a/lib/i18n/messages/zh-TW.ts b/lib/i18n/messages/zh-TW.ts
-index d9fe3c7..a45de72 100644
+index d9fe3c7..749cbf8 100644
 --- a/lib/i18n/messages/zh-TW.ts
 +++ b/lib/i18n/messages/zh-TW.ts
-@@ -437,7 +437,12 @@ export const zhTWLocale: LocalePlugin = {
+@@ -16,6 +16,11 @@ export const zhTWLocale: LocalePlugin = {
+     "settings.general": "一般",
+     "settings.appearance": "外觀",
+     "settings.chatContentWidth": "聊天內容寬度",
++    "settings.outputLanguage": "回覆語言",
++    "settings.outputLanguageAuto": "跟隨模型",
++    "settings.outputLanguageZh": "強制中文",
++    "settings.outputLanguageEn": "強制英文",
++    "settings.outputLanguageHint": "會附加到每次執行的系統提示詞末尾，優先於模型自身習慣；設定後從下一則訊息開始生效。",
+     "settings.chatContentFontSize": "聊天字體大小",
+     "settings.resetChatContentWidth": "重設聊天內容寬度",
+     "settings.resetChatContentFontSize": "重設聊天字體大小",
+@@ -437,7 +442,12 @@ export const zhTWLocale: LocalePlugin = {
      "chat.extensionWidgetLines": "{count} 行",
      "chat.close": "關閉",
      "chat.queued": "已排入佇列 · {count}",
@@ -1180,18 +1316,35 @@ index e4ac3ca..ec12775 100644
    /** Estimated active time across all entries in the session file. */
    totalActiveMs?: number;
 diff --git a/lib/rpc-manager.ts b/lib/rpc-manager.ts
-index a50d391..2c853a8 100644
+index a50d391..57d8352 100644
 --- a/lib/rpc-manager.ts
 +++ b/lib/rpc-manager.ts
-@@ -47,6 +47,7 @@ import { resolveShellTools } from "./powershell-settings";
+@@ -46,7 +46,10 @@ import { isBuiltInSubagentsEnabled } from "./subagent-settings";
+ import { resolveShellTools } from "./powershell-settings";
  import { CHAT_ONLY_RESOURCE_LOADER_OPTIONS, contextFilesSystemPrompt } from "./chat-only";
  import { createExactSystemPromptExtension } from "./exact-system-prompt";
++import { createOutputLanguageExtension } from "./output-language-extension";
++import { normalizeOutputLanguage, type OutputLanguage } from "./output-language";
  import { createArtifactGuideExtension } from "./artifact-guide-extension";
 +import { piTodosFromEvent, reconstructPiTodos } from "./pi-todos";
  import { createPiWebBuiltinExtensions } from "./builtin-extensions";
  import type { McpHost } from "./mcp-host";
  import { mcpPromptPreparation, type McpCommandCandidate } from "./mcp-command";
-@@ -452,6 +453,10 @@ export class AgentSessionWrapper {
+@@ -344,6 +347,13 @@ export class AgentSessionWrapper {
+   // but lookups must treat the wrapper as gone from this point on.
+   private closing = false;
+ 
++  /**
++   * Fork overlay: reply language for this session's runs. Read on every run by
++   * createOutputLanguageExtension and written from each prompt command, so the
++   * Settings choice applies to the next message in an already-open session.
++   */
++  public outputLanguage: { current: OutputLanguage } = { current: "auto" };
++
+   constructor(
+     public readonly inner: AgentSessionLike,
+     options: AgentSessionWrapperOptions = {},
+@@ -452,6 +462,10 @@ export class AgentSessionWrapper {
        this.trackActiveToolEvent(event);
        if (IDLE_RESET_EVENT_TYPES.has(event.type)) this.resetIdleTimer();
        this.emit(event);
@@ -1202,7 +1355,15 @@ index a50d391..2c853a8 100644
        // `agent_end` fires before the post-run pipeline (compaction, branch
        // summaries, queued continuations) completes, so the running set can
        // only shrink at `agent_settled` — or when the RPC prompt itself
-@@ -1000,6 +1005,9 @@ export class AgentSessionWrapper {
+@@ -799,6 +813,7 @@ export class AgentSessionWrapper {
+ 
+       switch (type) {
+       case "prompt": {
++        this.outputLanguage.current = normalizeOutputLanguage(command.outputLanguage);
+         // Serialize only admission. Once the preceding prompt has either
+         // passed or failed preflight, the SDK can atomically decide whether
+         // this submission starts a run or joins its streaming queue.
+@@ -1000,6 +1015,9 @@ export class AgentSessionWrapper {
            thinkingLevel: this.inner.agent.state?.thinkingLevel ?? "off",
            extensionStatuses: this.getExtensionStatuses(),
            extensionWidgets: this.getExtensionWidgets(),
@@ -1212,7 +1373,7 @@ index a50d391..2c853a8 100644
            routedModel: this.getRoutedModel(),
            cacheWarming: this.getCacheWarming(),
          };
-@@ -1166,6 +1174,33 @@ export class AgentSessionWrapper {
+@@ -1166,13 +1184,42 @@ export class AgentSessionWrapper {
          return this.inner.clearQueue();
        }
  
@@ -1244,8 +1405,43 @@ index a50d391..2c853a8 100644
 +      }
 +
        case "steer": {
++        this.outputLanguage.current = normalizeOutputLanguage(command.outputLanguage);
          const steerImages = command.images as Array<{ type: "image"; data: string; mimeType: string }> | undefined;
          await this.inner.steer(command.message as string, steerImages?.length ? steerImages : undefined);
+         return null;
+       }
+ 
+       case "follow_up": {
++        this.outputLanguage.current = normalizeOutputLanguage(command.outputLanguage);
+         const followImages = command.images as Array<{ type: "image"; data: string; mimeType: string }> | undefined;
+         await this.inner.followUp(command.message as string, followImages?.length ? followImages : undefined);
+         return null;
+@@ -2671,6 +2718,8 @@ export async function startRpcSession(
+     const builtins = subagentResources || chatOnly
+       ? undefined
+       : await createPiWebBuiltinExtensions({ agentDir });
++    const outputLanguageHolder: { current: OutputLanguage } = { current: "auto" };
++    const outputLanguageExtension = createOutputLanguageExtension(() => outputLanguageHolder.current);
+     const services = await createAgentSessionServices({
+       cwd: sessionCwd,
+       agentDir,
+@@ -2707,6 +2756,8 @@ export async function startRpcSession(
+                 () => listSubagentProfiles(sessionCwd),
+                 isBuiltInSubagentsEnabled,
+               ),
++              // Fork overlay: reply-language directive, appended per run.
++              outputLanguageExtension,
+             ],
+             extensionsOverride: (base) => preferUserBashExtension(preferPiWebSubagentExtension(base)),
+           },
+@@ -2788,6 +2839,7 @@ export async function startRpcSession(
+       suppressCompletionNotifications: Boolean(subagentResources),
+       ...(builtins?.mcpHost ? { mcpHost: builtins.mcpHost } : {}),
+     });
++    wrapper.outputLanguage = outputLanguageHolder;
+     const realSessionId = inner.sessionId as string;
+     registerRpcWrapper(wrapper);
+ 
 diff --git a/lib/session-reader.pagination.test.mjs b/lib/session-reader.pagination.test.mjs
 index 49fbe2a..fda8d50 100644
 --- a/lib/session-reader.pagination.test.mjs
