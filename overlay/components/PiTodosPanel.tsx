@@ -41,8 +41,10 @@ const TRUNCATE_AT = 28;
 const VISIBLE_ROWS = 8;
 /** The message column's max width (--chat-content-max-width default). */
 const MESSAGE_COLUMN_WIDTH = 820;
-/** Minimum free gutter beside the message column for the card to be allowed. */
-const MIN_GUTTER = 12;
+/** Visible gap to leave between the card and the message column. */
+const MIN_GUTTER = 16;
+/** The panel's own `right` inset, mirrored from the stylesheet. */
+const PANEL_RIGHT_INSET = 16;
 const MIN_WIDTH = 220;
 const MAX_WIDTH = 520;
 const DEFAULT_WIDTH = 300;
@@ -118,6 +120,8 @@ export function PiTodosPanel({
   const [areaWidth, setAreaWidth] = useState<number | null>(null);
   const [dragging, setDragging] = useState(false);
   const dragRef = useRef<{ startX: number; startWidth: number } | null>(null);
+  /** Mode to come back to when the closed chip is clicked. */
+  const lastOpenModeRef = useRef<PanelMode>("pill");
 
   useEffect(() => {
     const prefs = readPrefs();
@@ -160,17 +164,24 @@ export function PiTodosPanel({
   const gutter = areaWidth === null
     ? Number.POSITIVE_INFINITY
     : Math.max(0, (areaWidth - MESSAGE_COLUMN_WIDTH) / 2);
-  const maxWidthForGutter = Math.max(MIN_WIDTH, Math.min(MAX_WIDTH, gutter - MIN_GUTTER));
-  const fitsGutter = gutter >= width + MIN_GUTTER;
+  /** Widest card that still clears the message column. */
+  const maxWidthForGutter = Math.max(
+    MIN_WIDTH,
+    Math.min(MAX_WIDTH, gutter - PANEL_RIGHT_INSET - MIN_GUTTER),
+  );
+  /** The width the card would like, narrowed to the room that actually exists. */
+  const cardWidth = Math.min(width, maxWidthForGutter);
+  const preferredFits = cardWidth >= width;
 
-  // The card is only used when it fits beside the message column and the
-  // question is not pinned to the top; otherwise the panel yields to the pill
-  // so the auto-popup cannot cover the question. A stored "card" preference is
-  // re-checked against the current room instead of being trusted blindly.
-  const allowed = fitsGutter && !(busy && anchored);
+  // An explicit request ALWAYS opens — the card is narrowed to the gutter
+  // rather than refused, because refusing is what made a click look dead
+  // wherever 300px did not fit. Only the automatic appearance is conservative:
+  // a card when it fits and the question is not pinned to the top of the chat.
+  const explicitCard = userMode === "card";
+  const autoCard = userMode === null && preferredFits && !(busy && anchored);
   const mode: PanelMode = userMode === "closed"
     ? "closed"
-    : allowed && userMode !== "pill"
+    : explicitCard || autoCard
       ? "card"
       : "pill";
 
@@ -189,9 +200,9 @@ export function PiTodosPanel({
     } catch {
       // Ignore: pointermove events still arrive while the button is held.
     }
-    dragRef.current = { startX: event.clientX, startWidth: width };
+    dragRef.current = { startX: event.clientX, startWidth: cardWidth };
     setDragging(true);
-  }, [width]);
+  }, [cardWidth]);
 
   const onDragMove = useCallback((event: React.PointerEvent<HTMLElement>) => {
     const drag = dragRef.current;
@@ -224,7 +235,7 @@ export function PiTodosPanel({
         type="button"
         ref={panelRef as React.RefObject<HTMLButtonElement>}
         className={`pi-todos-restore${anchoredClass}`}
-        onClick={() => setMode("pill")}
+        onClick={() => setMode(lastOpenModeRef.current)}
         title="Show the task panel"
         aria-label={`Show task panel (${done} of ${todos.length} done)`}
       >
@@ -241,9 +252,9 @@ export function PiTodosPanel({
         ref={panelRef as React.RefObject<HTMLButtonElement>}
         className={`pi-todos-pill${anchoredClass}${busy ? " is-busy" : ""}`}
         onClick={() => setMode("card")}
-        title={allowed
+        title={preferredFits
           ? "Show the task panel"
-          : "Open the task panel (it will sit below the question; close it if it covers the text)"}
+          : "Show the task panel (narrowed to the space beside the text)"}
         aria-label={`Tasks ${done} of ${todos.length} done`}
       >
         <span className="pi-todos-pill-rail" aria-hidden="true">
@@ -261,7 +272,7 @@ export function PiTodosPanel({
       className={`cowork-panel pi-todos-panel${anchoredClass}${dragging ? " is-dragging" : ""}`}
       data-testid="pi-todos-panel"
       aria-label="Task list"
-      style={{ width }}
+      style={{ width: cardWidth }}
     >
       <span
         className="pi-todos-resize"
@@ -301,7 +312,10 @@ export function PiTodosPanel({
               <button
                 type="button"
                 className="pi-todos-action"
-                onClick={() => setMode("closed")}
+                onClick={() => {
+                  lastOpenModeRef.current = "card";
+                  setMode("closed");
+                }}
                 title="Close"
                 aria-label="Close task panel"
               >
