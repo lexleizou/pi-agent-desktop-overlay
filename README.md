@@ -46,14 +46,21 @@ PATCHES.md                     Full change log: what changed, why, and what was 
 
 ## Install
 
-The overlay targets pi-agent-desktop **v0.7.1** — tag `v0.7.1` (commit `9519ce4`). The
-`6fcd7d4` commit referenced in older versions of these notes is the *pi-web* baseline this fork
-merged (pi-web v0.10.0), not a pi-agent-desktop commit: checking it out gives you pi-web.
+The overlay targets pi-agent-desktop **v0.7.1** — tag `v0.7.1`, commit
+`9519ce4c1c2e504ba1d0aaaddcfed6ea8e49d0b3` (verified against the upstream repository with
+`git ls-remote --tags origin v0.7.1`). Pin the commit, not just the tag: the overlay was
+applied and tested at exactly this tree.
+
+> The `6fcd7d4` commit quoted in earlier revisions of this README was wrong. It is the *pi-web*
+> baseline this fork merged (pi-web v0.10.0, per `scripts/release-component-pins.json`) — a
+> commit in the shared fork history, not a pi-agent-desktop release. Checking it out gives you
+> pi-web, where `components/ContextUsageRing.tsx` and `components/SessionStatsPanel.tsx` do not
+> exist and `upstream-file-patches.diff` does not apply.
 
 ```bash
 git clone https://github.com/abcwyc/pi-agent-desktop.git
 cd pi-agent-desktop
-git checkout v0.7.1        # the verified baseline
+git checkout 9519ce4c1c2e504ba1d0aaaddcfed6ea8e49d0b3   # v0.7.1, the verified baseline
 
 # 1. Apply the block-level edits to upstream files
 git apply /path/to/upstream-file-patches.diff

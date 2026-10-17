@@ -52,7 +52,7 @@ beautifului.dev（MIT，© 2026 Shane Levine）的元素重新设计，保留 Cl
 - **ghost text 提示**：`Tab` 键帽 + 补全预览，走同一套 control 圆角与发丝环。
 
 日期：2026-10-16（六期、七期为 2026-10-17 追加，八期为 2026-10-17 追加）
-基线：abcwyc/pi-agent-desktop **v0.7.1**（tag `v0.7.1` = `9519ce4`；上游 pi-web v0.10.0 合并至
+基线：abcwyc/pi-agent-desktop **v0.7.1**（tag `v0.7.1` = `9519ce4c1c2e504ba1d0aaaddcfed6ea8e49d0b3`；上游 pi-web v0.10.0 合并至
 `6fcd7d4`，该 SHA 是 pi-web 的提交，不是 pi-agent-desktop 的）
 
 ## 文件清单
