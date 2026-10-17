@@ -146,6 +146,35 @@ composer spacer 同步把聊天滚到底——刚发的问题直接被顶出视�
   工具行），摘要文本 `⚙ 2 tool calls · bash ×2 44s ⌄`，`aria-expanded` 随点击翻转。
 - `npx tsc --noEmit` 通过；`npx eslint` 0；`npm test` → **2866 pass / 0 fail**。
 
+第十二期（2026-10-17）：**排队消息支持逐条移回输入框（原来只有一个「全部移回」）。**
+
+- 来源：Lex 指出「移回输入框」应该是**对应每一条可选**的，而不是整队一起。
+- 现状核对：队列头部的按钮调的是 `clear_queue`，即整队清空并全部塞回输入框；`chat.recallTitle`
+  的原文本身就是「移除**所有**排队消息」。所以缺的是单条能力。
+- 约束（必须说明）：pi SDK **没有单条出队 API**。`AgentSession` 只有 `steer` / `followUp` /
+  `clearQueue`（整清）与只读 getter；真正的投递队列在 `pi-agent-core` 的
+  `PendingMessageQueue`（`private`，只有 `clear()`/`drain()`）。上游 `clear_queue` 的注释也明说
+  「clear+requeue 会和 agent loop 取消息竞争」。
+- 实现（`lib/rpc-manager.ts` 新增 `recall_queued`）：先校验索引（越界直接报错、**不动队列**），
+  再 `clearQueue()`，从返回的两个数组里 splice 出目标那条并**不重新入队**，其余按原顺序与
+  原类型用 `steer`/`followUp` 放回。**结果语义是正确的**：被召回的那条不会再投递，其余不会
+  丢失也不会重复；唯一暴露面是时序——若 agent 的取消息时机恰好落在 clear 与回填之间，其余
+  消息会晚一个取用周期投递。
+- 客户端：`hooks/useAgentSession.ts` 新增 `handleRecallQueuedItem(kind, index)`（复用
+  `prependText` 把内容放回输入框，并用返回值同步本地队列，因为 `queue_update` 只在 SSE 在线时
+  到达）；`ChatInput` 的 `QueuedMessageRow` 每行加一个 `↵ 移回输入框` 按钮（hover 才显示，
+  样式在 bui-overlay.css）；头部按钮文案由「移回输入框」改为**「全部移回」**以区分（i18n 新增
+  `chat.recallThis` / `chat.recallThisTitle`，三个语言包同步）。
+- 实测（dev 实例 + 真实队列）：
+  - 队列 `{steering:[STEER-A], followUp:[FOLLOWUP-B]}` → `recall_queued(followUp, 0)` 返回
+    `{recalled:"FOLLOWUP-B", steering:["STEER-A"], followUp:[]}`，之后 `get_state` 一致。
+  - 队列 `{steering:[STEER-A, STEER-C], followUp:[FOLLOWUP-D]}` → 召回 `steer[1]` 只移除
+    STEER-C，保留 STEER-A 与 FOLLOWUP-D。
+  - 越界索引 → `Queued message not found`，队列原样不动。
+  - UI 端到端：两个排队行各带自己的按钮，点 FOLLOWUP-TWO 那行 → 输入框填入
+    `FOLLOWUP-TWO`，队列只剩 STEER-ONE。
+- `npx tsc --noEmit` 通过；`npm test` → **2866 pass / 0 fail**。
+
 日期：2026-10-16（六期、七期为 2026-10-17 追加，八、九期为 2026-10-17 追加）
 基线：abcwyc/pi-agent-desktop **v0.7.1**（tag `v0.7.1` = `9519ce4c1c2e504ba1d0aaaddcfed6ea8e49d0b3`；上游 pi-web v0.10.0 合并至
 `6fcd7d4`，该 SHA 是 pi-web 的提交，不是 pi-agent-desktop 的）

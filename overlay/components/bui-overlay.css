@@ -849,3 +849,82 @@ html.dark .ctx-session-metrics .is-cost,
     transition: none;
   }
 }
+
+/* ==========================================================================
+   UI zoom — sidebar text scale (components/ZoomShortcuts.tsx)
+   ⌘+ / ⌘- write `--sidebar-scale`; the UI size tokens are re-declared here so
+   the sidebar's own text scales while the rest of the chrome (topbar, panes,
+   popovers) keeps the sizes the layout was measured against.
+   ========================================================================== */
+
+.app-sidebar {
+  --fs-micro: calc(10px * var(--sidebar-scale, 1));
+  --fs-caption: calc(11px * var(--sidebar-scale, 1));
+  --fs-small: calc(12px * var(--sidebar-scale, 1));
+  --fs-body: calc(13px * var(--sidebar-scale, 1));
+  --fs-title: calc(15px * var(--sidebar-scale, 1));
+}
+
+/* Two sidebar labels carry inline px sizes, which a token re-declaration
+   cannot reach; override them here so nothing in the nav is left behind. */
+.app-sidebar .sidebar-header-row > span {
+  font-size: calc(13px * var(--sidebar-scale, 1)) !important;
+}
+
+.app-sidebar .session-item-time {
+  font-size: calc(11px * var(--sidebar-scale, 1)) !important;
+}
+
+/* ==========================================================================
+   Per-row recall on queued messages (components/ChatInput.tsx, fork overlay)
+   The queue header keeps "recall all"; each row gets its own affordance, shown
+   on hover so a short queue stays quiet.
+   ========================================================================== */
+
+.queued-message-row {
+  position: relative;
+}
+
+.queued-message-recall {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  flex: none;
+  margin-left: auto;
+  padding: 2px 8px;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text-dim);
+  font: inherit;
+  font-size: 11px;
+  line-height: 1.5;
+  white-space: nowrap;
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity 120ms var(--bui-ease-out), background 120ms var(--bui-ease-out),
+              color 120ms var(--bui-ease-out), border-color 120ms var(--bui-ease-out);
+}
+
+.queued-message-row:hover .queued-message-recall,
+.queued-message-row:focus-within .queued-message-recall {
+  opacity: 1;
+}
+
+.queued-message-recall:hover {
+  background: var(--bui-hover);
+  border-color: var(--bui-line);
+  color: var(--bui-ink);
+}
+
+.queued-message-recall:focus-visible {
+  opacity: 1;
+  outline: 1.5px solid var(--bui-accent);
+  outline-offset: 1px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .queued-message-recall {
+    transition: none;
+  }
+}

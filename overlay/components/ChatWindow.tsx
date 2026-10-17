@@ -313,6 +313,7 @@ export function ChatWindow({ session, searchTarget, onSearchTargetHandled, initi
     retryLoad,
     dismissModelScopeWarnings,
     handleRecallQueue,
+    handleRecallQueuedItem,
     handleBuiltinSlashCommand,
     handleToolPresetChange, handleThinkingLevelChange, handleSetDefaultModel, handleSetDefaultThinkingLevel, loadSlashCommands, scrollUserMsgToTop,
     loadContext, activeLeafId, scrollToBottom, scrollToMessage,
@@ -1204,6 +1205,7 @@ export function ChatWindow({ session, searchTarget, onSearchTargetHandled, initi
       queuedMessages={queuedMessages}
       inputHistory={inputHistory}
       onRecallQueue={handleRecallQueue}
+      onRecallQueuedItem={handleRecallQueuedItem}
       slashCommands={slashCommands}
       slashCommandsLoading={slashCommandsLoading}
       onLoadSlashCommands={loadSlashCommands}
