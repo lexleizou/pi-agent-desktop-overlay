@@ -21,6 +21,7 @@ across files, no upstream line is rewritten, and every mount point is an indepen
 | **Pinned prompt** | The message currently being answered stays at the top of the chat as a sticky one-line bar — expandable, with a jump back to the message itself. It hides while the real message is on screen, so the text never appears twice. |
 | **Zoom** | `⌘+` / `⌘−` / `⌘0` scale the conversation and the left sidebar: the shortcut drives the same chat font-size setting as the Settings → Chat slider (12–24px) plus a sidebar-only scale (`0.9`–`1.3`, scoped to `.app-sidebar`, so the rest of the chrome keeps its own sizes). Both persist. |
 | **Reply language** | Settings → Chat chooses **model default**, **force Simplified Chinese** or **force English**. The directive is appended to the system prompt of every run, so it outranks the model's own habits and `AGENTS.md`; the choice travels with each prompt, so switching applies from the next message — including in sessions that are already open. |
+| **Link favicons** | A site mark in front of every http(s) link in the transcript, the way Codex and ChatGPT draw them. Two public icon endpoints tried in order (DuckDuckGo, then Google's `s2`), then nothing — a link whose icon cannot be fetched looks exactly like it did before. The mark is a *sibling* of the anchor, never a child, so upstream's link markup and its tests stay untouched and copying a link copies text. Dark theme puts a faint white tile behind the mark, since most favicons are drawn for a white page. |
 
 ## Two upstream behaviours this overlay fixes
 
@@ -136,6 +137,12 @@ fork-owned in `scripts/fork-ownership.json`.
 
 Installment numbers match [PATCHES.md](PATCHES.md), which carries the reasoning, the trade-offs and
 the measurements behind each one.
+
+### 2026-10-18
+
+| # | Change |
+|---|---|
+| 17 | **Link favicons** — every http(s) link in the transcript gets its site's icon in front of it, Codex/ChatGPT style. Two icon sources with fallback (DuckDuckGo, then Google `s2`) and nothing rendered when both fail; `mailto:`, `file://`, relative paths, `localhost` and bare IPs get no mark. The mark is a sibling of the anchor, so upstream's link markup and its near-ten `>text</a>` tests are untouched. `scripts/sync-overlay.sh` also learned the published repo layout. |
 
 ### 2026-10-17
 

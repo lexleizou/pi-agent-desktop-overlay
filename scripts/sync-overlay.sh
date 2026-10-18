@@ -28,6 +28,10 @@ set -euo pipefail
 
 WT="${1:?usage: sync-overlay.sh <pi-agent-desktop-checkout> [overlay-repo-dir]}"
 HERE="$(cd "$(dirname "$0")" && pwd)"
+# The overlay package can be either flat (overlay/ beside the script, as it was
+# originally extracted) or the published repo layout (overlay/ at the repo root,
+# script in scripts/). Fall back one level so both work from their own root.
+[ -d "$HERE/overlay" ] || HERE="$(dirname "$HERE")"
 REPO="${2:-$HERE}"
 
 [ -d "$WT/.git" ] || { echo "not a git checkout: $WT" >&2; exit 1; }

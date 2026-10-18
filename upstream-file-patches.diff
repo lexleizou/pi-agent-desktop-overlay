@@ -612,6 +612,29 @@ index 62ebd98..d61c447 100644
      </button>
    );
  }
+diff --git a/components/MarkdownBody.tsx b/components/MarkdownBody.tsx
+index e26b3bd..5f96987 100644
+--- a/components/MarkdownBody.tsx
++++ b/components/MarkdownBody.tsx
+@@ -8,6 +8,7 @@ import { parsePdfPageFragment, resolveLocalFileHref, shouldOpenLocalFileInApp }
+ import { encodeFilePathForApi } from "@/lib/file-paths";
+ import { markdownRehypePlugins, markdownRemarkPlugins, markdownUrlTransform, markdownUserRemarkPlugins, normalizeDisplayMath } from "@/lib/markdown";
+ import { ImagePreview } from "./ImagePreview";
++import { LinkFavicon } from "./LinkFavicon";
+ import { MermaidBlock, CodeBlock } from "./MermaidBlock";
+ import { HtmlPreviewBlock } from "./HtmlPreviewBlock";
+ import { htmlPreviewKind } from "@/lib/html-preview";
+@@ -168,6 +169,10 @@ function buildComponents(
+       if (!filePath || !openFile) {
+         return (
+           <MarkdownLinkContext.Provider value={true}>
++            {/* Overlay: the site mark is a sibling, never a child, of the anchor —
++                upstream's anchor markup and its link tests stay untouched.
++                Renders nothing for non-web hrefs (mailto:, relative, file://). */}
++            <LinkFavicon href={href} />
+             <a
+               href={href}
+               {...props}
 diff --git a/components/MessageView.tsx b/components/MessageView.tsx
 index 21cfa70..dd5c596 100644
 --- a/components/MessageView.tsx

@@ -1041,3 +1041,57 @@ html.dark .ctx-session-metrics .is-cost,
     transition: none;
   }
 }
+
+/* ==========================================================================
+   Link favicons — the site mark in front of every web link
+   (components/LinkFavicon.tsx)
+
+   The span is a *sibling* of the anchor, so none of upstream's `.markdown-body a`
+   rules are touched: the link keeps its Clay colour, its underline and its
+   hitbox, and only gains a mark in front of it. Size is `1em` so the icon tracks
+   whatever the surrounding text does — a link inside an `h2` gets a bigger mark
+   than one inside a footnote without any extra rule.
+
+   The negative `vertical-align` nudges the 16px square down onto the text's
+   optical centre; a square corner radius (3px) matches the app's radius ramp
+   without turning a 12px icon into a circle.
+   ========================================================================== */
+
+.md-link-favicon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+  width: 1em;
+  height: 1em;
+  margin-right: 0.34em;
+  vertical-align: -0.13em;
+}
+
+.md-link-favicon img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  border-radius: 3px;
+  object-fit: contain;
+}
+
+/* Inside a heading, an inline-flex mark would add to the line box; keep it out
+   of the heading's optical leading by matching the cap height instead of 1em. */
+.markdown-body h1 .md-link-favicon,
+.markdown-body h2 .md-link-favicon,
+.markdown-body h3 .md-link-favicon {
+  width: 0.85em;
+  height: 0.85em;
+}
+
+/* Dark theme: most favicons are drawn for a white page, and a mark like
+   GitHub's is near-black on white — invisible once the surface turns dark.
+   A faint white tile behind the mark fixes every icon at once, without
+   inverting colours or tinting the ones that already read fine. It is the
+   same trick Codex/ChatGPT uses for its link marks. */
+html.dark .md-link-favicon,
+html[data-theme="dark"] .md-link-favicon {
+  background: rgba(255, 255, 255, 0.9);
+  border-radius: 3px;
+}
