@@ -33,11 +33,11 @@ index e9e3fbb..523a444 100644
      </html>
    );
 diff --git a/components/ChatInput.tsx b/components/ChatInput.tsx
-index 7bb6624..b11b903 100644
+index 355088a..d4673fa 100644
 --- a/components/ChatInput.tsx
 +++ b/components/ChatInput.tsx
-@@ -30,6 +30,8 @@ import { resolveSessionReferences } from "@/lib/session-reference";
- import type { RoutedModelInfo, SessionInfo } from "@/lib/types";
+@@ -29,6 +29,8 @@ import { resolveSessionReferences } from "@/lib/session-reference";
+ import type { RoutedModelInfo } from "@/lib/types";
  import { getMarkdownListContinuation } from "@/lib/markdown-list-continuation";
  import { isBareMcpCommand, isBuiltinMcpCommand } from "@/lib/mcp-command";
 +import { applyGhostCompletion } from "@/lib/ghost-text";
@@ -45,7 +45,7 @@ index 7bb6624..b11b903 100644
  import { FolderIcon, getFileIcon } from "./FileIcons";
  import { ImagePreview } from "./ImagePreview";
  import { useIsMobile } from "@/hooks/useIsMobile";
-@@ -119,6 +121,16 @@ interface Props {
+@@ -124,6 +126,16 @@ interface Props {
    queuedMessages?: QueuedMessages | null;
    inputHistory?: string[];
    onRecallQueue?: () => void;
@@ -62,7 +62,7 @@ index 7bb6624..b11b903 100644
    slashCommands?: SlashCommandInfo[];
    slashCommandsLoading?: boolean;
    onLoadSlashCommands?: () => Promise<SlashCommandInfo[]> | SlashCommandInfo[];
-@@ -564,10 +576,26 @@ function revokeImagePreview(image: AttachedImage): void {
+@@ -563,10 +575,26 @@ function revokeImagePreview(image: AttachedImage): void {
    }
  }
  
@@ -90,7 +90,7 @@ index 7bb6624..b11b903 100644
        style={{
          display: "flex",
          alignItems: "center",
-@@ -592,6 +620,21 @@ function QueuedMessageRow({ kind, label, text }: { kind: "steer" | "follow-up";
+@@ -591,6 +619,21 @@ function QueuedMessageRow({ kind, label, text }: { kind: "steer" | "follow-up";
          {label}
        </span>
        <span style={{ minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{text}</span>
@@ -112,7 +112,7 @@ index 7bb6624..b11b903 100644
      </div>
    );
  }
-@@ -783,7 +826,7 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
+@@ -782,7 +825,7 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
    onCompact, onAbortCompaction, isCompacting, compactError, compactNotice, compactResult, summarizationRetry, toolPreset, onToolPresetChange,
    thinkingLevel, isAutoThinkingSelection = false, onThinkingLevelChange, availableThinkingLevels, thinkingLevelMap,
    savedDefaultThinkingLevel, onSetDefaultThinkingLevel,
@@ -120,11 +120,11 @@ index 7bb6624..b11b903 100644
 +  retryInfo, onAbortRetry, routedModel, branchSummaryPending = false, onAbortBranchSummary, automation, onSetAutomation, queuedMessages, inputHistory = [], onRecallQueue, onRecallQueuedItem, suggestion, onSuggestionHandled,
    slashCommands, slashCommandsLoading, onLoadSlashCommands,
    onBuiltinCommand,
-   soundEnabled, onSoundToggle, onAudioUnlock,
-@@ -887,6 +930,15 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
-   const historyMenuRef = useRef<HTMLDivElement>(null);
-   const isComposingRef = useRef(false);
-   const lastCompositionEndAtRef = useRef(0);
+   onAudioUnlock,
+@@ -897,6 +940,15 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
+     hashQuery, setHashQuery, hashMenuOpen, setHashMenuOpen, hashActiveIndex, setHashActiveIndex,
+     hashMatches, hashItemRefs, sessionIndex, sessionMentionTargetsRef, updateHashQuery, applyHashCompletion,
+   } = useSessionMentionPalette({ cwd: chatOnly ? null : cwd, value, setValue, setAtQuery, textareaRef });
 +  // Ghost text (phase 2 overlay): inline history-prefix completion. Engine
 +  // and rendering live in ./GhostTextOverlay + lib/ghost-text; ChatInput only
 +  // wires the suppress conditions, the Tab accept and the hint element.
@@ -134,10 +134,10 @@ index 7bb6624..b11b903 100644
 +    Boolean(isStreaming) || isComposingRef.current || slashMenuOpen || atMenuOpen || hashMenuOpen || historyMenuOpen,
 +    value,
 +  );
-   const slashCommandsRequestedRef = useRef(false);
-   const slashMenuRef = useRef<HTMLDivElement>(null);
-   const slashItemRefs = useRef<Array<HTMLButtonElement | null>>([]);
-@@ -1163,10 +1215,11 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
+   useEffect(() => {
+     if (!chatOnly) return;
+     setAtQuery(null);
+@@ -1165,10 +1217,11 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
      if (draftKey) clearDraft(draftKey);
      if (draftKeyRef.current && draftKeyRef.current !== draftKey) clearDraft(draftKeyRef.current);
      clearImages();
@@ -145,12 +145,12 @@ index 7bb6624..b11b903 100644
      if (textareaRef.current) {
        textareaRef.current.style.height = "auto";
      }
--  }, [clearImages, draftKey]);
-+  }, [clearImages, draftKey, ghost.controllerRef]);
+-  }, [clearImages, draftKey, setHashQuery]);
++  }, [clearImages, draftKey, setHashQuery, ghost.controllerRef]);
  
    useEffect(() => {
      if (!draftKey || draftKeyRef.current !== draftKey) return;
-@@ -1841,6 +1894,48 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
+@@ -1745,6 +1798,48 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
          return;
        }
  
@@ -199,16 +199,16 @@ index 7bb6624..b11b903 100644
        if (sendShortcut) {
          e.preventDefault();
          if (isStreaming && (onSteer || onFollowUp)) {
-@@ -1850,7 +1945,7 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
+@@ -1754,7 +1849,7 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
          }
        }
      },
--    [isMobile, enterSendMode, isStreaming, onSteer, onFollowUp, onAbort, slashMenuOpen, slashQuery, displayedSlashCommands, slashActiveIndex, applySlashCommand, sendQueued, handleSend, getNextSlashIndex, hashMenuOpen, hashQuery, hashMatches, hashActiveIndex, applyHashCompletion, atMenuOpen, atQuery, atMatches, atActiveIndex, applyAtCompletion, historyMenuOpen, inputHistory, historyActiveIndex, applyHistoryInput, value]
-+    [isMobile, enterSendMode, isStreaming, onSteer, onFollowUp, onAbort, slashMenuOpen, slashQuery, displayedSlashCommands, slashActiveIndex, applySlashCommand, sendQueued, handleSend, getNextSlashIndex, hashMenuOpen, hashQuery, hashMatches, hashActiveIndex, applyHashCompletion, atMenuOpen, atQuery, atMatches, atActiveIndex, applyAtCompletion, historyMenuOpen, inputHistory, historyActiveIndex, applyHistoryInput, value, ghost.controllerRef]
+-    [isMobile, enterSendMode, isStreaming, onSteer, onFollowUp, onAbort, slashMenuOpen, slashQuery, displayedSlashCommands, slashActiveIndex, applySlashCommand, sendQueued, handleSend, getNextSlashIndex, hashMenuOpen, hashQuery, hashMatches, hashActiveIndex, applyHashCompletion, atMenuOpen, atQuery, atMatches, atActiveIndex, applyAtCompletion, historyMenuOpen, inputHistory, historyActiveIndex, applyHistoryInput, value, setHashActiveIndex, setHashMenuOpen]
++    [isMobile, enterSendMode, isStreaming, onSteer, onFollowUp, onAbort, slashMenuOpen, slashQuery, displayedSlashCommands, slashActiveIndex, applySlashCommand, sendQueued, handleSend, getNextSlashIndex, hashMenuOpen, hashQuery, hashMatches, hashActiveIndex, applyHashCompletion, atMenuOpen, atQuery, atMatches, atActiveIndex, applyAtCompletion, historyMenuOpen, inputHistory, historyActiveIndex, applyHistoryInput, value, setHashActiveIndex, setHashMenuOpen, ghost.controllerRef]
    );
  
    const handleInput = useCallback(() => {
-@@ -2157,10 +2252,26 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
+@@ -2076,10 +2171,26 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
                )}
              </div>
              {queuedMessages?.steering.map((text, i) => (
@@ -237,7 +237,7 @@ index 7bb6624..b11b903 100644
              ))}
            </div>
          )}
-@@ -2740,22 +2851,28 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
+@@ -2609,22 +2720,28 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
              ref={textareaRef}
              className="chat-input-textarea"
              aria-label={compact ? t("chat.quoteQuestion") : undefined}
@@ -266,7 +266,7 @@ index 7bb6624..b11b903 100644
              }}
              onCompositionEnd={(e) => {
                isComposingRef.current = false;
-@@ -2763,6 +2880,7 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
+@@ -2632,6 +2749,7 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
                const el = e.currentTarget;
                updateAtQuery(el.value, el.selectionStart);
                updateHashQuery(el.value, el.selectionStart);
@@ -274,7 +274,7 @@ index 7bb6624..b11b903 100644
              }}
              onInput={handleInput}
              onPaste={handlePaste}
-@@ -2770,6 +2888,10 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
+@@ -2639,6 +2757,10 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
                isStreaming && (onSteer || onFollowUp)
                  ? t("chat.steerPlaceholder")
                  : isStreaming ? t("chat.agentPlaceholder")
@@ -285,7 +285,7 @@ index 7bb6624..b11b903 100644
                  : isNarrow
                  ? (t("chat.messagePlaceholderShort") || "Message…")
                  : t("chat.messagePlaceholder")
-@@ -2792,6 +2914,15 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
+@@ -2661,6 +2783,15 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
                overflow: "auto",
              }}
            />
@@ -299,11 +299,11 @@ index 7bb6624..b11b903 100644
 +            </span>
 +          )}
  
-           {isStreaming ? (
-             <div style={{ display: "flex", alignItems: "center", gap: 6, flexShrink: 0, alignSelf: "flex-end" }}>
-@@ -3015,13 +3146,16 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
-                 )}
-               </div>
+           {/* The / @ # triggers, kept out of the placeholder: shown faintly
+               beside Send only while the card is focused and empty. */}
+@@ -2758,13 +2889,16 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
+                 onSelectProject={onSelectProject}
+               />
              )}
 -            {/* Model selector — visible always, disabled during streaming */}
 +            {/* Model selector — visible and usable at all times. Switching
@@ -321,7 +321,7 @@ index 7bb6624..b11b903 100644
                  isAutoSelection={isAutoModelSelection}
                  defaultValue={defaultModel}
 diff --git a/components/ChatWindow.tsx b/components/ChatWindow.tsx
-index 6911167..7f4e0d0 100644
+index ce81c86..50d6a56 100644
 --- a/components/ChatWindow.tsx
 +++ b/components/ChatWindow.tsx
 @@ -39,6 +39,9 @@ import {
@@ -334,7 +334,7 @@ index 6911167..7f4e0d0 100644
  
  interface Props {
    session: SessionInfo | null;
-@@ -293,7 +296,7 @@ export function ChatWindow({ session, searchTarget, onSearchTargetHandled, initi
+@@ -294,7 +297,7 @@ export function ChatWindow({ session, workspaceKind, searchTarget, onSearchTarge
      retryInfo, contextUsage, forkingEntryId, summarizationRetry, automation, handleSetAutomation,
      isCompacting, compactError, compactNotice, compactResult, displayModel: displayModelValue, modelSwitching, sessionStats,
      slashCommands, slashCommandsLoading, queuedMessages,
@@ -343,7 +343,7 @@ index 6911167..7f4e0d0 100644
      isAutoModelSelection,
      isAutoThinkingSelection,
      defaultModel,
-@@ -311,6 +314,7 @@ export function ChatWindow({ session, searchTarget, onSearchTargetHandled, initi
+@@ -312,6 +315,7 @@ export function ChatWindow({ session, workspaceKind, searchTarget, onSearchTarge
      retryLoad,
      dismissModelScopeWarnings,
      handleRecallQueue,
@@ -351,7 +351,7 @@ index 6911167..7f4e0d0 100644
      handleBuiltinSlashCommand,
      handleToolPresetChange, handleThinkingLevelChange, handleSetDefaultModel, handleSetDefaultThinkingLevel, loadSlashCommands, scrollUserMsgToTop,
      loadContext, activeLeafId, scrollToBottom, scrollToMessage,
-@@ -322,6 +326,50 @@ export function ChatWindow({ session, searchTarget, onSearchTargetHandled, initi
+@@ -324,6 +328,50 @@ export function ChatWindow({ session, workspaceKind, searchTarget, onSearchTarge
      onScrollPositionChange,
    });
    const sessionBusy = agentRunning || bashRunning;
@@ -402,7 +402,7 @@ index 6911167..7f4e0d0 100644
    const [quotedSelection, setQuotedSelection] = useState<{
      text: string;
      top: number;
-@@ -960,6 +1008,33 @@ export function ChatWindow({ session, searchTarget, onSearchTargetHandled, initi
+@@ -980,6 +1028,33 @@ export function ChatWindow({ session, workspaceKind, searchTarget, onSearchTarge
      current.sessionId = messageKeySessionId;
      return assignMessageKeys(current.tracker, messages, entryIds);
    }, [messageKeySessionId, messages, entryIds]);
@@ -436,7 +436,7 @@ index 6911167..7f4e0d0 100644
    const promptAnchorSpacerRef = useRef<HTMLDivElement | null>(null);
    const promptAnchorSpacerHeightRef = useRef(0);
    const promptAnchorMeasureFrameRef = useRef<number | null>(null);
-@@ -980,6 +1055,17 @@ export function ChatWindow({ session, searchTarget, onSearchTargetHandled, initi
+@@ -1000,6 +1075,17 @@ export function ChatWindow({ session, workspaceKind, searchTarget, onSearchTarge
      const messageContent = messageContentRef.current;
      const userMessage = lastUserMsgRef.current;
      if (!container || !messageContent || !userMessage || !spacer) return;
@@ -454,7 +454,7 @@ index 6911167..7f4e0d0 100644
  
      let disposed = false;
      const updatePromptAnchorSpacer = () => {
-@@ -999,10 +1085,14 @@ export function ChatWindow({ session, searchTarget, onSearchTargetHandled, initi
+@@ -1019,10 +1105,14 @@ export function ChatWindow({ session, workspaceKind, searchTarget, onSearchTarge
        const contentEnd = spacer.getBoundingClientRect().top
          - containerTop
          + container.scrollTop;
@@ -470,7 +470,7 @@ index 6911167..7f4e0d0 100644
        );
  
        const isInitialMeasurement = !promptAnchorAdjustmentDoneRef.current;
-@@ -1034,6 +1124,11 @@ export function ChatWindow({ session, searchTarget, onSearchTargetHandled, initi
+@@ -1054,6 +1144,11 @@ export function ChatWindow({ session, workspaceKind, searchTarget, onSearchTarge
      observer?.observe(container);
      observer?.observe(messageContent);
      observer?.observe(userMessage);
@@ -482,7 +482,7 @@ index 6911167..7f4e0d0 100644
      return () => {
        disposed = true;
        if (promptAnchorUpdateRef.current === updatePromptAnchorSpacer) {
-@@ -1096,6 +1191,13 @@ export function ChatWindow({ session, searchTarget, onSearchTargetHandled, initi
+@@ -1118,6 +1213,13 @@ export function ChatWindow({ session, workspaceKind, searchTarget, onSearchTarge
    const chatInputElement = (
      <ChatInput
        ref={chatInputRef}
@@ -494,9 +494,9 @@ index 6911167..7f4e0d0 100644
 +        suggestionChipsRef.current?.clear();
 +      }}
        onSend={handleSend}
+       onAttachFiles={onAttachFiles}
        onAbort={handleAbort}
-       onSteer={agentRunning ? handleSteer : undefined}
-@@ -1142,6 +1244,7 @@ export function ChatWindow({ session, searchTarget, onSearchTargetHandled, initi
+@@ -1165,6 +1267,7 @@ export function ChatWindow({ session, workspaceKind, searchTarget, onSearchTarge
        queuedMessages={queuedMessages}
        inputHistory={inputHistory}
        onRecallQueue={handleRecallQueue}
@@ -504,7 +504,7 @@ index 6911167..7f4e0d0 100644
        slashCommands={slashCommands}
        slashCommandsLoading={slashCommandsLoading}
        onLoadSlashCommands={loadSlashCommands}
-@@ -1178,7 +1281,8 @@ export function ChatWindow({ session, searchTarget, onSearchTargetHandled, initi
+@@ -1200,7 +1303,8 @@ export function ChatWindow({ session, workspaceKind, searchTarget, onSearchTarge
      );
    }
  
@@ -514,7 +514,7 @@ index 6911167..7f4e0d0 100644
    const belowEditorWidgets = extensionWidgets.filter((widget) => widget.placement === "belowEditor");
    const hasExtensionStatus = formatExtensionStatusLine(extensionStatuses).length > 0;
  
-@@ -1268,6 +1372,12 @@ export function ChatWindow({ session, searchTarget, onSearchTargetHandled, initi
+@@ -1290,6 +1394,12 @@ export function ChatWindow({ session, workspaceKind, searchTarget, onSearchTarge
          {extensionCustomUi && (
            <ExtensionCustomPanel key={extensionCustomUi.id} request={extensionCustomUi} waitingCount={waitingExtensionCustomUiCount} onInput={sendExtensionCustomInput} />
          )}
@@ -527,7 +527,7 @@ index 6911167..7f4e0d0 100644
          {!isEmptyNew && <>
          <div
            ref={scrollContainerRef}
-@@ -1283,6 +1393,20 @@ export function ChatWindow({ session, searchTarget, onSearchTargetHandled, initi
+@@ -1305,6 +1415,20 @@ export function ChatWindow({ session, workspaceKind, searchTarget, onSearchTarge
              visibility: pendingScrollRestore && !loading ? "hidden" : undefined,
            }}
          >
@@ -548,7 +548,7 @@ index 6911167..7f4e0d0 100644
            <div style={{ minWidth: 0, padding: `0 ${CHAT_COLUMN_PADDING}px` }}>
              <div ref={messageContentRef} onPointerUp={captureQuotedSelection} style={{ width: "100%", minWidth: 0, maxWidth: "var(--chat-content-max-width, 820px)", margin: "0 auto" }}>
              {loading ? (
-@@ -1651,6 +1775,9 @@ export function ChatWindow({ session, searchTarget, onSearchTargetHandled, initi
+@@ -1686,6 +1810,9 @@ export function ChatWindow({ session, workspaceKind, searchTarget, onSearchTarge
              </div>
            </div>
          )}
@@ -559,7 +559,7 @@ index 6911167..7f4e0d0 100644
          {(belowEditorWidgets.length > 0 || hasExtensionStatus) && (
            <div className={`extension-status-shelf${belowEditorWidgets.length > 0 ? " has-widgets" : ""}${hasExtensionStatus ? " has-status" : ""}`}>
 diff --git a/components/ContextUsageRing.tsx b/components/ContextUsageRing.tsx
-index 62ebd98..d61c447 100644
+index fb78d06..a8ba32f 100644
 --- a/components/ContextUsageRing.tsx
 +++ b/components/ContextUsageRing.tsx
 @@ -1,5 +1,6 @@
@@ -591,7 +591,7 @@ index 62ebd98..d61c447 100644
  function fmtWindow(n: number): string {
    if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`;
    if (n >= 1_000) return `${(n / 1_000).toFixed(0)}k`;
-@@ -56,12 +72,32 @@ export function ContextUsageRing({ contextUsage, sessionStats, onOpenStats }: Co
+@@ -56,8 +72,13 @@ export function ContextUsageRing({ contextUsage, sessionStats, onOpenStats }: Co
      } else if (percent !== null && windowSize > 0) {
        tooltipParts[0] += ` / ${fmtWindow(windowSize)}`;
      }
@@ -607,6 +607,9 @@ index 62ebd98..d61c447 100644
      }
    }
    const title = tooltipParts.length > 0 ? tooltipParts.join(" · ") : t("chat.ctxUsage");
+@@ -66,6 +87,21 @@ export function ContextUsageRing({ contextUsage, sessionStats, onOpenStats }: Co
+   // as a loading spinner, so leave the slot empty until usage arrives.
+   if (!hasUsage) return null;
  
 +  // The ring alone is too subtle: also show the numbers inline so usage is
 +  // readable at a glance (hover was slow to appear and hidden entirely).
@@ -626,16 +629,16 @@ index 62ebd98..d61c447 100644
    return (
      <button
        type="button"
-@@ -74,7 +110,7 @@ export function ContextUsageRing({ contextUsage, sessionStats, onOpenStats }: Co
+@@ -78,7 +114,7 @@ export function ContextUsageRing({ contextUsage, sessionStats, onOpenStats }: Co
        }}
        style={{
          display: "flex", alignItems: "center", justifyContent: "center",
--        width: 28, height: 28, padding: 0, flexShrink: 0,
-+        gap: 4, padding: "0 6px 0 2", height: 28, flexShrink: 0,
+-        width: 32, height: 32, padding: 0, flexShrink: 0,
++        gap: 4, padding: "0 6px 0 2px", height: 32, flexShrink: 0,
          background: "none", border: "none", borderRadius: 9,
          cursor: hasUsage ? "pointer" : "default",
          transition: "background 0.12s, opacity 0.12s",
-@@ -103,6 +139,31 @@ export function ContextUsageRing({ contextUsage, sessionStats, onOpenStats }: Co
+@@ -107,6 +143,31 @@ export function ContextUsageRing({ contextUsage, sessionStats, onOpenStats }: Co
            opacity={percent === null ? 0.35 : 1}
          />
        </svg>
@@ -691,7 +694,7 @@ index e26b3bd..5f96987 100644
                href={href}
                {...props}
 diff --git a/components/MessageView.tsx b/components/MessageView.tsx
-index 21cfa70..dd5c596 100644
+index b23cc59..66d8ef3 100644
 --- a/components/MessageView.tsx
 +++ b/components/MessageView.tsx
 @@ -16,6 +16,7 @@ import { isApplyPatchToolName, isEditToolName } from "@/lib/tool-names";
@@ -717,7 +720,7 @@ index 21cfa70..dd5c596 100644
  function AssistantMessageView({
    message,
    isStreaming,
-@@ -721,6 +730,37 @@ function AssistantMessageView({
+@@ -720,6 +729,37 @@ function AssistantMessageView({
      return map;
    }, [toolResults, message.timestamp]);
  
@@ -755,7 +758,7 @@ index 21cfa70..dd5c596 100644
    const textContent = blocks
      .filter((b): b is TextContent => b.type === "text")
      .map((b) => b.text)
-@@ -824,9 +864,11 @@ function AssistantMessageView({
+@@ -821,9 +861,11 @@ function AssistantMessageView({
                      {est}
                    </span>
                    {tps !== null && (() => {
@@ -769,7 +772,7 @@ index 21cfa70..dd5c596 100644
                          {tps.toFixed(1)} t/s
                        </span>
                      );
-@@ -840,7 +882,9 @@ function AssistantMessageView({
+@@ -837,7 +879,9 @@ function AssistantMessageView({
  
        <div className="message-assistant-content" style={{ display: "flex", flexDirection: "column", gap: 8 }}>
          {blockItems.map(({ block, originalIndex }) => (
@@ -779,7 +782,7 @@ index 21cfa70..dd5c596 100644
          ))}
        </div>
  
-@@ -916,10 +960,26 @@ function AssistantMessageView({
+@@ -913,10 +957,26 @@ function AssistantMessageView({
        <div className="message-assistant-footer" style={{
          display: "flex", alignItems: "center", gap: 8, marginTop: 4,
        }}>
@@ -809,7 +812,7 @@ index 21cfa70..dd5c596 100644
          )}
          {textContent && !isStreaming && (
            <button
-@@ -2105,18 +2165,30 @@ function getToolPreview(block: ToolCallContent): string {
+@@ -2102,18 +2162,30 @@ function getToolPreview(block: ToolCallContent): string {
    return String(first).slice(0, 120);
  }
  
@@ -842,7 +845,7 @@ index 21cfa70..dd5c596 100644
    return parts.join(" · ");
  }
 diff --git a/components/ModelSelector.tsx b/components/ModelSelector.tsx
-index 1bd1843..692c07a 100644
+index bec29fc..6987ebd 100644
 --- a/components/ModelSelector.tsx
 +++ b/components/ModelSelector.tsx
 @@ -21,6 +21,8 @@ interface ModelSelectorProps {
@@ -888,7 +891,7 @@ index 1bd1843..692c07a 100644
  
    useEffect(() => {
      const handleOutsideClick = (event: MouseEvent) => {
-@@ -135,7 +157,8 @@ export function ModelSelector({
+@@ -138,7 +160,8 @@ export function ModelSelector({
          justifyContent: isMobile ? "flex-start" : undefined,
          gap: 6,
          width: isMobile ? "100%" : undefined,
@@ -898,7 +901,7 @@ index 1bd1843..692c07a 100644
          height: 32,
          padding: isMobile ? "8px 10px" : "8px 12px",
          overflow: "hidden",
-@@ -153,12 +176,14 @@ export function ModelSelector({
+@@ -156,12 +179,14 @@ export function ModelSelector({
      const active = option.modelId === value?.modelId && option.provider === value?.provider;
      setOpen(false);
      setFilter("");
@@ -913,7 +916,7 @@ index 1bd1843..692c07a 100644
      onSetDefault?.(option.provider, option.modelId);
    };
  
-@@ -177,12 +202,12 @@ export function ModelSelector({
+@@ -180,12 +205,12 @@ export function ModelSelector({
      >
        <button
          type="button"
@@ -928,7 +931,7 @@ index 1bd1843..692c07a 100644
          style={buttonStyle}
          onClick={(event) => {
            const rect = event.currentTarget.getBoundingClientRect();
-@@ -297,6 +322,7 @@ export function ModelSelector({
+@@ -300,6 +325,7 @@ export function ModelSelector({
                  <SelectorRow active={!value} gutter={Boolean(onSetDefault)} onSelect={() => {
                    setOpen(false);
                    setFilter("");
@@ -936,7 +939,7 @@ index 1bd1843..692c07a 100644
                    onClear();
                  }}>
                    <OptionLabel label={emptyLabel ?? "Default"} />
-@@ -306,32 +332,85 @@ export function ModelSelector({
+@@ -309,32 +335,85 @@ export function ModelSelector({
                  <div style={{ padding: "8px 12px", color: "var(--text-dim)", fontSize: 12, whiteSpace: "nowrap" }}>
                    {filter.trim() ? t("chat.noMatchingModels") : "No available models"}
                  </div>
@@ -1070,23 +1073,28 @@ index 4a9720b..e79b428 100644
          ];
          const section = (
 diff --git a/components/SettingsPanel.test.mjs b/components/SettingsPanel.test.mjs
-index 0546194..61c1541 100644
+index f7580a0..53844e5 100644
 --- a/components/SettingsPanel.test.mjs
 +++ b/components/SettingsPanel.test.mjs
-@@ -182,8 +182,9 @@ test("groups chat display controls together without row backgrounds", () => {
+@@ -189,11 +189,12 @@ test("groups chat display controls together without row backgrounds", () => {
    assert.doesNotMatch(appearanceSection, /settings-chat-content/);
    assert.match(chatSection, /className="settings-chat-options"/);
    // The fork's diffViewMode choice rides in the same group after the merged
--  // send-mode radio (thinking, width, font, quote, send mode, diff view).
--  assert.equal((chatSection.match(/className="settings-chat-option(?: |")/g) ?? []).length, 6);
+-  // send-mode radio (thinking, width, font, quote, completion sound, send
+-  // mode, diff view). The sound switch moved here from the composer row.
+-  assert.equal((chatSection.match(/className="settings-chat-option(?: |")/g) ?? []).length, 7);
 +  // send-mode radio, and its reply-language choice leads the group
-+  // (language, thinking, width, font, quote, send mode, diff view).
-+  assert.equal((chatSection.match(/className="settings-chat-option(?: |")/g) ?? []).length, 7);
-   assert.equal((chatSection.match(/<ConfigSwitch/g) ?? []).length, 2);
-   for (const key of ["thinkingExpandedDefault", "chatContentWidth", "chatContentFontSize", "quoteSelection", "enterSendMode", "enterSendModeEnter", "enterSendModeCtrlEnter"]) {
++  // (language, thinking, width, font, quote, completion sound, send mode,
++  // diff view). The sound switch moved here from the composer row.
++  assert.equal((chatSection.match(/className="settings-chat-option(?: |")/g) ?? []).length, 8);
+   assert.equal((chatSection.match(/<ConfigSwitch/g) ?? []).length, 3);
+-  for (const key of ["thinkingExpandedDefault", "chatContentWidth", "chatContentFontSize", "quoteSelection", "completionSound", "enterSendMode", "enterSendModeEnter", "enterSendModeCtrlEnter"]) {
++  for (const key of ["outputLanguage", "thinkingExpandedDefault", "chatContentWidth", "chatContentFontSize", "quoteSelection", "completionSound", "enterSendMode", "enterSendModeEnter", "enterSendModeCtrlEnter"]) {
      assert.match(chatSection, new RegExp(`t\\("settings\\.${key}"\\)`));
+   }
+   assert.doesNotMatch(panelSource, /ThinkingIcon|settings-thinking-/);
 diff --git a/components/SettingsPanel.tsx b/components/SettingsPanel.tsx
-index 2caaf11..bba879a 100644
+index 86aa5dd..55a193d 100644
 --- a/components/SettingsPanel.tsx
 +++ b/components/SettingsPanel.tsx
 @@ -17,6 +17,7 @@ import {
@@ -1097,7 +1105,7 @@ index 2caaf11..bba879a 100644
  import { useEnterSendMode, setEnterSendMode } from "@/hooks/useEnterSendMode";
  import { sendAgentCommand } from "@/lib/agent-client";
  import type { ProjectTrustStatus, ToolSettingsResponse } from "@/lib/api-types";
-@@ -92,6 +93,7 @@ function GeneralSettings({
+@@ -98,6 +99,7 @@ function GeneralSettings({
    const { preference, setThemePreference } = useTheme();
    const { mode: diffViewMode, setMode: setDiffViewMode } = useDiffViewMode();
    const { width: chatContentWidth, setWidth: setChatContentWidth, fontSize, setFontSize } = useChatAppearance();
@@ -1105,7 +1113,7 @@ index 2caaf11..bba879a 100644
    const desktop = isTauriDesktop();
    const enterSendMode = useEnterSendMode();
    const [shellSettings, setShellSettings] = useState<ToolSettingsResponse | null>(null);
-@@ -232,6 +234,29 @@ function GeneralSettings({
+@@ -212,6 +214,29 @@ function GeneralSettings({
                    }}
                  />
                </div>
@@ -1136,10 +1144,10 @@ index 2caaf11..bba879a 100644
                  <div className="settings-chat-range-header">
                    <label htmlFor="settings-chat-content-width">{t("settings.chatContentWidth")}</label>
 diff --git a/hooks/useAgentSession.test.mjs b/hooks/useAgentSession.test.mjs
-index cc061fe..3b39a15 100644
+index 46818c0..91e7398 100644
 --- a/hooks/useAgentSession.test.mjs
 +++ b/hooks/useAgentSession.test.mjs
-@@ -746,7 +746,12 @@ test("keeps a newly sent user message at the top while its response starts", ()
+@@ -752,7 +752,12 @@ test("keeps a newly sent user message at the top while its response starts", ()
    assert.match(userScrollSource, /previousScrollTopRef\.current = targetTop/);
    assert.match(userScrollSource, /container\.scrollTo\(\{ top: targetTop, behavior: "auto" \}\)/);
    assert.match(scrollEffectSource, /pendingScrollToUserRef\.current = false;[\s\S]*?scrollUserMsgToTop\(\)/);
@@ -1154,7 +1162,7 @@ index cc061fe..3b39a15 100644
    assert.match(chatWindowSource, /const promptAnchorAdjustmentDoneRef = useRef\(false\)/);
    assert.match(chatWindowSource, /promptAnchorAdjustmentDoneRef\.current = false/);
 diff --git a/hooks/useAgentSession.ts b/hooks/useAgentSession.ts
-index 8b60425..bb51d4e 100644
+index 65eb2d8..a674244 100644
 --- a/hooks/useAgentSession.ts
 +++ b/hooks/useAgentSession.ts
 @@ -27,6 +27,7 @@ import { getPreferredToolPreset, setPreferredToolPreset } from "@/lib/tool-prese
@@ -1165,7 +1173,7 @@ index 8b60425..bb51d4e 100644
  import { userMessageKey } from "@/lib/prompt-recovery";
  import { AgentEventConnection } from "@/lib/agent-event-connection";
  import { isNestedToolExecutionEvent, isSystemMessageEvent } from "@/lib/agent-event-wire";
-@@ -98,6 +99,7 @@ interface LastAssistantTextResponse {
+@@ -103,6 +104,7 @@ interface LastAssistantTextResponse {
  
  type AgentStateResponse = {
    model?: { provider: string; id: string };
@@ -1173,7 +1181,7 @@ index 8b60425..bb51d4e 100644
    contextUsage?: { percent: number | null; contextWindow: number; tokens: number | null } | null;
    systemPrompt?: string;
    thinkingLevel?: string;
-@@ -452,6 +454,8 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
+@@ -408,6 +410,8 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
    const [extensionCustomUis, setExtensionCustomUis] = useState<ExtensionUiCustomRequest[]>([]);
    const [extensionStatuses, setExtensionStatuses] = useState<ExtensionStatusItem[]>([]);
    const [extensionWidgets, setExtensionWidgets] = useState<ExtensionWidgetItem[]>([]);
@@ -1182,7 +1190,7 @@ index 8b60425..bb51d4e 100644
    const [queuedMessages, setQueuedMessages] = useState<QueuedMessages>({ steering: [], followUp: [] });
  
    const eventConnectionRef = useRef<AgentEventConnection | null>(null);
-@@ -648,6 +652,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
+@@ -607,6 +611,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
      setSystemPrompt(null);
      setExtensionStatuses([]);
      setExtensionWidgets([]);
@@ -1190,7 +1198,7 @@ index 8b60425..bb51d4e 100644
      setQueuedMessages({ steering: [], followUp: [] });
      setLiveModel(null);
      setRoutedModel(null);
-@@ -911,6 +916,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
+@@ -869,6 +874,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
            if (liveState.systemPrompt !== undefined) setSystemPrompt(liveState.systemPrompt ?? null);
            if (liveState.extensionStatuses !== undefined) setExtensionStatuses(liveState.extensionStatuses ?? []);
            if (liveState.extensionWidgets !== undefined) setExtensionWidgets(liveState.extensionWidgets ?? []);
@@ -1198,7 +1206,7 @@ index 8b60425..bb51d4e 100644
            if (liveState.queuedMessages !== undefined) setQueuedMessages(normalizeQueuedMessages(liveState.queuedMessages));
          } else if (!agentState.running) {
            setQueuedMessages({ steering: [], followUp: [] });
-@@ -1891,6 +1897,10 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
+@@ -1840,6 +1846,10 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
        case "thinking_level_changed":
          setLiveThinkingLevel(asConcreteThinkingLevel(event.level as string));
          break;
@@ -1206,10 +1214,10 @@ index 8b60425..bb51d4e 100644
 +        // Pushed by the wrapper after every `todo` tool call (lib/pi-todos.ts).
 +        setPiTodos((event.piTodos as AgentStateResponse["piTodos"]) ?? null);
 +        break;
-       case "session_info_changed":
-         // Renames from other windows/extensions arrive here; the server bumps
-         // sessionListVersion on this event, so the sidebar refreshes itself.
-@@ -2000,6 +2010,9 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
+       case "extension_ui_request":
+         handleExtensionUiRequest(event as ExtensionUiRequest);
+         break;
+@@ -1935,6 +1945,9 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
          await sendAgentCommand(sid, {
            type: "prompt",
            message,
@@ -1219,7 +1227,7 @@ index 8b60425..bb51d4e 100644
            ...(piImages?.length ? { images: piImages } : {}),
          });
          promoteNewSession(1, message);
-@@ -2010,6 +2023,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
+@@ -1945,6 +1958,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
          await sendAgentCommand(session.id, {
            type: "prompt",
            message,
@@ -1227,7 +1235,7 @@ index 8b60425..bb51d4e 100644
            ...(piImages?.length ? { images: piImages } : {}),
          });
        } else {
-@@ -2608,6 +2622,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
+@@ -2460,6 +2474,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
          type: "prompt",
          message,
          streamingBehavior: behavior,
@@ -1235,7 +1243,7 @@ index 8b60425..bb51d4e 100644
          ...(piImages?.length ? { images: piImages } : {}),
        });
      } catch (e) {
-@@ -2667,6 +2682,29 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
+@@ -2519,6 +2534,29 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
      }
    }, [opts.chatInputRef, addNotice]);
  
@@ -1265,7 +1273,7 @@ index 8b60425..bb51d4e 100644
    const handleThinkingLevelChange = useCallback(async (level: ThinkingLevelOption) => {
      if (level === "auto") {
        thinkingLevelOverrideRef.current = null;
-@@ -2887,6 +2925,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
+@@ -2743,6 +2781,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
            if (agentState.state.systemPrompt !== undefined) setSystemPrompt(agentState.state.systemPrompt ?? null);
            if (agentState.state.extensionStatuses !== undefined) setExtensionStatuses(agentState.state.extensionStatuses ?? []);
            if (agentState.state.extensionWidgets !== undefined) setExtensionWidgets(agentState.state.extensionWidgets ?? []);
@@ -1273,7 +1281,7 @@ index 8b60425..bb51d4e 100644
            if (agentState.state.queuedMessages !== undefined) setQueuedMessages(normalizeQueuedMessages(agentState.state.queuedMessages));
          }
        });
-@@ -3116,7 +3155,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
+@@ -2957,7 +2996,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
      retryInfo, contextUsage, systemPrompt, forkingEntryId, retryLoad, dismissModelScopeWarnings,
      isCompacting, compactError, compactNotice, compactResult, currentModel, displayModel, modelSwitching, sessionStats,
      slashCommands, slashCommandsLoading, queuedMessages,
@@ -1282,7 +1290,7 @@ index 8b60425..bb51d4e 100644
      isAutoModelSelection: isNew && newSessionModel === null,
      isAutoThinkingSelection: isNew && newSessionThinkingLevel === null,
      defaultModel: newSessionDefaultModel,
-@@ -3134,6 +3173,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
+@@ -2975,6 +3014,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
      handleSend, handleAbort, handleAbortRetry, handleFork, handleNavigate, handleModelChange,
      handleCompact, handleSteer, handleFollowUp, handlePromptWithStreamingBehavior, handleAbortCompaction,
      handleRecallQueue,
@@ -1291,12 +1299,12 @@ index 8b60425..bb51d4e 100644
      handleEditContent,
      // Present only while a history edit is pending.
 diff --git a/lib/i18n/messages/en.ts b/lib/i18n/messages/en.ts
-index 54cecf5..99c8ec5 100644
+index 4be5d67..954e399 100644
 --- a/lib/i18n/messages/en.ts
 +++ b/lib/i18n/messages/en.ts
-@@ -16,6 +16,11 @@ export const enLocale: LocalePlugin = {
-     "settings.general": "General",
+@@ -20,6 +20,11 @@ export const enLocale: LocalePlugin = {
      "settings.appearance": "Appearance",
+     "settings.appearanceDescription": "Select a theme or follow your system preference.",
      "settings.chatContentWidth": "Chat content width",
 +    "settings.outputLanguage": "Reply language",
 +    "settings.outputLanguageAuto": "Model default",
@@ -1306,7 +1314,7 @@ index 54cecf5..99c8ec5 100644
      "settings.chatContentFontSize": "Chat font size",
      "settings.resetChatContentWidth": "Reset chat content width",
      "settings.resetChatContentFontSize": "Reset chat font size",
-@@ -477,7 +482,12 @@ export const enLocale: LocalePlugin = {
+@@ -392,7 +397,12 @@ export const enLocale: LocalePlugin = {
      "chat.extensionWidgetLines": "{count} lines",
      "chat.close": "Close",
      "chat.queued": "Queued · {count}",
@@ -1321,12 +1329,12 @@ index 54cecf5..99c8ec5 100644
      "chat.retrying": "Retrying ({attempt}/{max})…",
      "chat.loadingCommands": "Loading commands...",
 diff --git a/lib/i18n/messages/zh-CN.ts b/lib/i18n/messages/zh-CN.ts
-index 5af0e43..5009cb4 100644
+index de5c81e..6a6802d 100644
 --- a/lib/i18n/messages/zh-CN.ts
 +++ b/lib/i18n/messages/zh-CN.ts
-@@ -16,6 +16,11 @@ export const zhCNLocale: LocalePlugin = {
-     "settings.general": "常规",
+@@ -20,6 +20,11 @@ export const zhCNLocale: LocalePlugin = {
      "settings.appearance": "外观",
+     "settings.appearanceDescription": "选择浅色或深色主题，也可以跟随系统设置。",
      "settings.chatContentWidth": "聊天内容宽度",
 +    "settings.outputLanguage": "回复语言",
 +    "settings.outputLanguageAuto": "跟随模型",
@@ -1336,7 +1344,7 @@ index 5af0e43..5009cb4 100644
      "settings.chatContentFontSize": "聊天字体大小",
      "settings.resetChatContentWidth": "重置聊天内容宽度",
      "settings.resetChatContentFontSize": "重置聊天字体大小",
-@@ -477,7 +482,12 @@ export const zhCNLocale: LocalePlugin = {
+@@ -392,7 +397,12 @@ export const zhCNLocale: LocalePlugin = {
      "chat.extensionWidgetLines": "{count} 行",
      "chat.close": "关闭",
      "chat.queued": "已排队 · {count}",
@@ -1351,12 +1359,12 @@ index 5af0e43..5009cb4 100644
      "chat.retrying": "正在重试（{attempt}/{max}）…",
      "chat.loadingCommands": "正在加载命令...",
 diff --git a/lib/i18n/messages/zh-TW.ts b/lib/i18n/messages/zh-TW.ts
-index d9fe3c7..749cbf8 100644
+index 1c2c780..901f33a 100644
 --- a/lib/i18n/messages/zh-TW.ts
 +++ b/lib/i18n/messages/zh-TW.ts
-@@ -16,6 +16,11 @@ export const zhTWLocale: LocalePlugin = {
-     "settings.general": "一般",
+@@ -20,6 +20,11 @@ export const zhTWLocale: LocalePlugin = {
      "settings.appearance": "外觀",
+     "settings.appearanceDescription": "選擇淺色或深色主題，也可以跟隨系統設定。",
      "settings.chatContentWidth": "聊天內容寬度",
 +    "settings.outputLanguage": "回覆語言",
 +    "settings.outputLanguageAuto": "跟隨模型",
@@ -1366,7 +1374,7 @@ index d9fe3c7..749cbf8 100644
      "settings.chatContentFontSize": "聊天字體大小",
      "settings.resetChatContentWidth": "重設聊天內容寬度",
      "settings.resetChatContentFontSize": "重設聊天字體大小",
-@@ -437,7 +442,12 @@ export const zhTWLocale: LocalePlugin = {
+@@ -392,7 +397,12 @@ export const zhTWLocale: LocalePlugin = {
      "chat.extensionWidgetLines": "{count} 行",
      "chat.close": "關閉",
      "chat.queued": "已排入佇列 · {count}",
@@ -1394,10 +1402,10 @@ index e4ac3ca..ec12775 100644
    /** Estimated active time across all entries in the session file. */
    totalActiveMs?: number;
 diff --git a/lib/rpc-manager.ts b/lib/rpc-manager.ts
-index a50d391..57d8352 100644
+index 030330f..04e88da 100644
 --- a/lib/rpc-manager.ts
 +++ b/lib/rpc-manager.ts
-@@ -46,7 +46,10 @@ import { isBuiltInSubagentsEnabled } from "./subagent-settings";
+@@ -52,7 +52,10 @@ import { isBuiltInSubagentsEnabled } from "./subagent-settings";
  import { resolveShellTools } from "./powershell-settings";
  import { CHAT_ONLY_RESOURCE_LOADER_OPTIONS, contextFilesSystemPrompt } from "./chat-only";
  import { createExactSystemPromptExtension } from "./exact-system-prompt";
@@ -1408,7 +1416,7 @@ index a50d391..57d8352 100644
  import { createPiWebBuiltinExtensions } from "./builtin-extensions";
  import type { McpHost } from "./mcp-host";
  import { mcpPromptPreparation, type McpCommandCandidate } from "./mcp-command";
-@@ -344,6 +347,13 @@ export class AgentSessionWrapper {
+@@ -330,6 +333,13 @@ export class AgentSessionWrapper {
    // but lookups must treat the wrapper as gone from this point on.
    private closing = false;
  
@@ -1422,7 +1430,7 @@ index a50d391..57d8352 100644
    constructor(
      public readonly inner: AgentSessionLike,
      options: AgentSessionWrapperOptions = {},
-@@ -452,6 +462,10 @@ export class AgentSessionWrapper {
+@@ -443,6 +453,10 @@ export class AgentSessionWrapper {
        this.trackActiveToolEvent(event);
        if (IDLE_RESET_EVENT_TYPES.has(event.type)) this.resetIdleTimer();
        this.emit(event);
@@ -1433,7 +1441,7 @@ index a50d391..57d8352 100644
        // `agent_end` fires before the post-run pipeline (compaction, branch
        // summaries, queued continuations) completes, so the running set can
        // only shrink at `agent_settled` — or when the RPC prompt itself
-@@ -799,6 +813,7 @@ export class AgentSessionWrapper {
+@@ -790,6 +804,7 @@ export class AgentSessionWrapper {
  
        switch (type) {
        case "prompt": {
@@ -1441,7 +1449,7 @@ index a50d391..57d8352 100644
          // Serialize only admission. Once the preceding prompt has either
          // passed or failed preflight, the SDK can atomically decide whether
          // this submission starts a run or joins its streaming queue.
-@@ -1000,6 +1015,9 @@ export class AgentSessionWrapper {
+@@ -991,6 +1006,9 @@ export class AgentSessionWrapper {
            thinkingLevel: this.inner.agent.state?.thinkingLevel ?? "off",
            extensionStatuses: this.getExtensionStatuses(),
            extensionWidgets: this.getExtensionWidgets(),
@@ -1451,7 +1459,7 @@ index a50d391..57d8352 100644
            routedModel: this.getRoutedModel(),
            cacheWarming: this.getCacheWarming(),
          };
-@@ -1166,13 +1184,42 @@ export class AgentSessionWrapper {
+@@ -1157,13 +1175,42 @@ export class AgentSessionWrapper {
          return this.inner.clearQueue();
        }
  
@@ -1494,7 +1502,7 @@ index a50d391..57d8352 100644
          const followImages = command.images as Array<{ type: "image"; data: string; mimeType: string }> | undefined;
          await this.inner.followUp(command.message as string, followImages?.length ? followImages : undefined);
          return null;
-@@ -2671,6 +2718,8 @@ export async function startRpcSession(
+@@ -2549,6 +2596,8 @@ export async function startRpcSession(
      const builtins = subagentResources || chatOnly
        ? undefined
        : await createPiWebBuiltinExtensions({ agentDir });
@@ -1503,7 +1511,7 @@ index a50d391..57d8352 100644
      const services = await createAgentSessionServices({
        cwd: sessionCwd,
        agentDir,
-@@ -2707,6 +2756,8 @@ export async function startRpcSession(
+@@ -2591,6 +2640,8 @@ export async function startRpcSession(
                  () => listSubagentProfiles(sessionCwd),
                  isBuiltInSubagentsEnabled,
                ),
@@ -1512,7 +1520,7 @@ index a50d391..57d8352 100644
              ],
              extensionsOverride: (base) => preferUserBashExtension(preferPiWebSubagentExtension(base)),
            },
-@@ -2788,6 +2839,7 @@ export async function startRpcSession(
+@@ -2675,6 +2726,7 @@ export async function startRpcSession(
        suppressCompletionNotifications: Boolean(subagentResources),
        ...(builtins?.mcpHost ? { mcpHost: builtins.mcpHost } : {}),
      });
@@ -1623,7 +1631,7 @@ index 27eb1a3..6554913 100644
    };
  }
 diff --git a/lib/types.ts b/lib/types.ts
-index 5906c8b..03a27f9 100644
+index 2e4afca..09c1637 100644
 --- a/lib/types.ts
 +++ b/lib/types.ts
 @@ -79,6 +79,8 @@ export interface AssistantMessage {
@@ -1680,10 +1688,10 @@ index 030e452..6c92bba 100644
  pub use window_appkit::refresh_traffic_lights;
  
 diff --git a/src-tauri/src/shell/window.rs b/src-tauri/src/shell/window.rs
-index 0d4c6ab..7f289c7 100644
+index 7597ce9..fbfc831 100644
 --- a/src-tauri/src/shell/window.rs
 +++ b/src-tauri/src/shell/window.rs
-@@ -41,6 +41,53 @@ pub fn launched_at_login() -> bool {
+@@ -39,6 +39,53 @@ pub fn launched_at_login() -> bool {
      env::args().any(|arg| arg == AUTOSTART_ARG)
  }
  

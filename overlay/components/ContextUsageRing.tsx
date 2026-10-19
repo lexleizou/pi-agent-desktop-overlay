@@ -83,6 +83,10 @@ export function ContextUsageRing({ contextUsage, sessionStats, onOpenStats }: Co
   }
   const title = tooltipParts.length > 0 ? tooltipParts.join(" · ") : t("chat.ctxUsage");
 
+  // Nothing to report yet (new or dormant session): an empty grey ring read
+  // as a loading spinner, so leave the slot empty until usage arrives.
+  if (!hasUsage) return null;
+
   // The ring alone is too subtle: also show the numbers inline so usage is
   // readable at a glance (hover was slow to appear and hidden entirely).
   const inlineLabel = showTooltip && percent !== null && windowSize > 0
@@ -110,7 +114,7 @@ export function ContextUsageRing({ contextUsage, sessionStats, onOpenStats }: Co
       }}
       style={{
         display: "flex", alignItems: "center", justifyContent: "center",
-        gap: 4, padding: "0 6px 0 2", height: 28, flexShrink: 0,
+        gap: 4, padding: "0 6px 0 2px", height: 32, flexShrink: 0,
         background: "none", border: "none", borderRadius: 9,
         cursor: hasUsage ? "pointer" : "default",
         transition: "background 0.12s, opacity 0.12s",

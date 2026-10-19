@@ -30,6 +30,12 @@ import type {
   SessionMessageEntry,
 } from "./types";
 import { getUsageCostBreakdown } from "./usage-breakdown";
+import {
+  createSessionReplacementActions,
+  UNSAVED_SESSION_FORK_ERROR,
+  writeForkedSession,
+  type ExtensionCommandContextActionsLike,
+} from "./session-replacement";
 import { createHeadlessCustomUiTui, DEFAULT_CUSTOM_UI_COLUMNS, type HeadlessCustomUiTui } from "./custom-ui-terminal";
 import {
   createSubagentExtension,
@@ -61,6 +67,7 @@ import {
   readSessionToolSelection,
   validateSessionToolSelection,
 } from "./session-tool-selection";
+import { isChatWorkspacePath } from "./chat-workspace";
 
 // ============================================================================
 // Types
@@ -115,30 +122,12 @@ type ExtensionUiRequestBody = Record<string, unknown> & {
   expiresAt?: number;
 };
 
-/** An extension's `withSession()` callback; it receives the target's ReplacedSessionContext. */
-type ReplacedSessionCallback = (ctx: unknown) => Promise<void>;
-
-type ExtensionCommandContextActionsLike = {
-  waitForIdle: () => Promise<void>;
-  newSession: (options?: {
-    parentSession?: string;
-    setup?: (sessionManager: SessionManager) => Promise<void>;
-    withSession?: ReplacedSessionCallback;
-  }) => Promise<{ cancelled: boolean }>;
-  fork: (entryId: string, options?: {
-    position?: "before" | "at";
-    withSession?: ReplacedSessionCallback;
-  }) => Promise<{ cancelled: boolean }>;
-  navigateTree: (targetId: string, options?: NavigateTreeOptions) => Promise<{ cancelled: boolean }>;
-  switchSession: (sessionPath: string, options?: {
-    withSession?: ReplacedSessionCallback;
-  }) => Promise<{ cancelled: boolean }>;
-  reload: () => Promise<void>;
-};
 
 type AgentSessionWrapperOptions = {
   exactSystemPrompt?: () => string;
   chatOnly?: boolean;
+  /** The hidden non-project workspace. Chats reject tool and shell commands. */
+  chatWorkspace?: boolean;
   onAgentRunComplete?: AgentRunCompleteListener;
   suppressCompletionNotifications?: boolean;
   /** Connects the session's MCP servers before a prompt starts a run, and lets go of them when it closes (lib/mcp-host.ts). */
@@ -207,10 +196,6 @@ export function resolveSessionShutdownDeadlineMs(
 const SESSION_SHUTDOWN_DEADLINE_MS = resolveSessionShutdownDeadlineMs();
 
 const SESSION_REPLACEMENT_COMMAND_TYPES = new Set(["fork", "clone"]);
-// pi writes a session file at the first user message, so a session with no
-// conversation on disk has nothing to copy from yet.
-const UNSAVED_SESSION_FORK_ERROR =
-  "This session has not been saved yet. Send a message before forking it.";
 const COMMANDS_ALLOWED_DURING_SESSION_REPLACEMENT = new Set([
   "get_state",
   "get_session_stats",
@@ -326,6 +311,7 @@ export class AgentSessionWrapper {
   private extensionBindingError: unknown = null;
   private readonly exactSystemPrompt?: () => string;
   private readonly chatOnly: boolean;
+  private readonly chatWorkspace: boolean;
   private readonly onAgentRunComplete?: AgentRunCompleteListener;
   private readonly suppressCompletionNotifications: boolean;
   private readonly mcpHost?: Pick<McpHost, "prepareForPrompt" | "dispose">;
@@ -360,6 +346,7 @@ export class AgentSessionWrapper {
   ) {
     this.exactSystemPrompt = options.exactSystemPrompt;
     this.chatOnly = options.chatOnly ?? false;
+    this.chatWorkspace = options.chatWorkspace ?? false;
     this.onAgentRunComplete = options.onAgentRunComplete;
     this.suppressCompletionNotifications = options.suppressCompletionNotifications ?? false;
     this.mcpHost = options.mcpHost;
@@ -430,6 +417,10 @@ export class AgentSessionWrapper {
 
   isChatOnly(): boolean {
     return this.chatOnly;
+  }
+
+  isChatWorkspace(): boolean {
+    return this.chatWorkspace;
   }
 
   hasSuppressedCompletionNotifications(): boolean {
@@ -1226,6 +1217,7 @@ export class AgentSessionWrapper {
       }
 
       case "get_tools": {
+        if (this.chatWorkspace) return [];
         // A hidden tool is withdrawn: pi ignores it when setting the active tools.
         const all: ToolInfo[] = this.inner.getAllTools().filter((t) => t.exposure !== "hidden");
         const active = new Set<string>(this.inner.getActiveToolNames());
@@ -1245,6 +1237,7 @@ export class AgentSessionWrapper {
       }
 
       case "get_commands": {
+        if (this.chatWorkspace) return { commands: [] };
         const commands: SlashCommandInfo[] = [];
         for (const registered of this.inner.extensionRunner.getRegisteredCommands()) {
           commands.push({
@@ -1274,6 +1267,9 @@ export class AgentSessionWrapper {
       }
 
       case "set_tools": {
+        if (this.chatWorkspace) {
+          throw new Error("Chats have no tools. Open a project to change the tool preset.");
+        }
         const toolNames = command.toolNames as string[];
         this.setActiveToolSelection(toolNames);
         return null;
@@ -1330,6 +1326,9 @@ export class AgentSessionWrapper {
       }
 
       case "bash": {
+        if (this.chatWorkspace) {
+          throw new Error("Shell commands are unavailable in chats. Open a project to run one.");
+        }
         if (this.pendingPromptCount > 0 || this.inner.isStreaming || this.inner.isCompacting || this.inner.isBashRunning) {
           throw new Error("Cannot run a shell command while the session is busy");
         }
@@ -2052,156 +2051,26 @@ export class AgentSessionWrapper {
     };
   }
 
-  /**
-   * Copies the active path up to `targetLeafId` into a new session file, or creates an empty
-   * session linked to this one when there is nothing before the fork point.
-   */
   private writeForkedSession(targetLeafId: string | null): { newSessionId: string; newSessionFile: string } {
-    const sessionManager = this.inner.sessionManager;
-    const currentSessionFile = this.inner.sessionFile;
-    if (!currentSessionFile) throw new Error("Persisted session is missing a session file");
-    const sessionDir = sessionManager.getSessionDir();
-    let newSessionFile: string;
-    let forkedManager: SessionManager;
-
-    if (!targetLeafId) {
-      // Fork before the first message: create an empty session linked to this one
-      forkedManager = SessionManager.create(sessionManager.getCwd(), sessionDir, {
-        parentSession: currentSessionFile,
-      });
-      newSessionFile = forkedManager.getSessionFile() as string;
-    } else {
-      // Fork after some history: copy path up to and including the target leaf
-      if (!existsSync(currentSessionFile)) throw new Error(UNSAVED_SESSION_FORK_ERROR);
-      forkedManager = SessionManager.open(currentSessionFile, sessionDir);
-      const forkedPath = forkedManager.createBranchedSession(targetLeafId);
-      if (!forkedPath) throw new Error("Failed to create forked session");
-      newSessionFile = forkedPath;
-    }
-
-    if (!existsSync(newSessionFile)) {
-      const header = forkedManager.getHeader();
-      if (!header) throw new Error("Forked session is missing a session header");
-      const content = [header, ...forkedManager.getEntries()]
-        .map((forkedEntry) => JSON.stringify(forkedEntry))
-        .join("\n") + "\n";
-      writeFileSync(newSessionFile, content, { encoding: "utf8", flag: "wx" });
-    }
-
-    const newSessionId = forkedManager.getSessionId();
-    cacheSessionPath(newSessionId, newSessionFile);
-    invalidateSessionListCache();
-    return { newSessionId, newSessionFile };
-  }
-
-  /*
-   * ctx.newSession / ctx.fork / ctx.switchSession from an extension command. The pi CLI
-   * replaces its single session in place (AgentSessionRuntime); Pi Web hosts many, so the
-   * target gets its own wrapper, this one finishes the command that asked for the move, and
-   * the browser follows a `session_replaced` event. `session_before_switch` and
-   * `session_before_fork` handlers can cancel, as in the CLI.
-   */
-
-  private async cancelledBySessionReplacementHook(
-    event: Exclude<Parameters<NonNullable<AgentSessionLike["extensionRunner"]["emit"]>>[0], { type: "session_shutdown" }>,
-  ): Promise<boolean> {
-    const runner = this.inner.extensionRunner;
-    if (!runner.emit || runner.hasHandlers?.(event.type) === false) return false;
-    const result = await runner.emit.call(runner, event) as { cancel?: boolean } | undefined;
-    return result?.cancel === true;
-  }
-
-  private async moveToReplacementSession(
-    sessionId: string,
-    sessionFile: string,
-    withSession: ReplacedSessionCallback | undefined,
-    started?: AgentSessionWrapper,
-  ): Promise<{ cancelled: boolean }> {
-    this.emit({ type: "session_replaced", sessionId } as unknown as AgentEvent);
-    if (withSession) {
-      const target = started ?? (await startRpcSession(sessionId, sessionFile, undefined)).session;
-      const ctx = target.inner.createReplacedSessionContext?.();
-      if (!ctx) throw new Error("This pi version cannot hand the new session to the extension");
-      await withSession(ctx);
-    }
-    return { cancelled: false };
-  }
-
-  private async newSessionForExtension(options?: Parameters<ExtensionCommandContextActionsLike["newSession"]>[0]) {
-    if (await this.cancelledBySessionReplacementHook({ type: "session_before_switch", reason: "new" })) {
-      return { cancelled: true };
-    }
-    // Unlike the CLI's /new, the browser keeps showing the model and tools picked for this
-    // session, so the new one starts with the same selection.
-    const entries = this.inner.sessionManager.getEntries() as unknown as SessionEntry[];
-    const toolNames = readSessionToolSelection(entries);
-    const model = this.inner.model;
-    const thinkingLevel = this.inner.agent.state?.thinkingLevel;
-    const { session, realSessionId } = await startRpcSession(`__ext__${randomUUID()}`, "", this.cwd, {
-      ...(toolNames !== undefined ? { toolNames } : {}),
-      ...(model ? { initialModel: { provider: model.provider, modelId: model.id }, allowInitialModelFallback: true } : {}),
-      ...(thinkingLevel && THINKING_LEVEL_NAMES.has(thinkingLevel as ThinkingLevel)
-        ? { thinkingLevel: thinkingLevel as ThinkingLevel }
-        : {}),
-      ...(options?.parentSession ? { parentSession: options.parentSession } : {}),
-    });
-    if (options?.setup) {
-      await options.setup(session.inner.sessionManager);
-      session.inner.refreshContext?.();
-    }
-    invalidateSessionListCache();
-    return this.moveToReplacementSession(realSessionId, "", options?.withSession, session);
-  }
-
-  private async forkForExtension(
-    entryId: string,
-    options?: Parameters<ExtensionCommandContextActionsLike["fork"]>[1],
-  ) {
-    const position = options?.position ?? "before";
-    if (await this.cancelledBySessionReplacementHook({ type: "session_before_fork", entryId, position })) {
-      return { cancelled: true };
-    }
-    const entry = this.inner.sessionManager.getEntry(entryId);
-    if (!entry) throw new Error("Invalid entry ID for forking");
-    let targetLeafId: string | null;
-    if (position === "at") {
-      targetLeafId = entry.id;
-    } else {
-      if (entry.type !== "message" || entry.message.role !== "user") throw new Error("Invalid entry ID for forking");
-      targetLeafId = entry.parentId ?? null;
-    }
-    if (!this.inner.sessionManager.isPersisted()) return { cancelled: true };
-    const { newSessionId, newSessionFile } = this.writeForkedSession(targetLeafId);
-    return this.moveToReplacementSession(newSessionId, newSessionFile, options?.withSession);
-  }
-
-  private async switchSessionForExtension(
-    sessionPath: string,
-    options?: Parameters<ExtensionCommandContextActionsLike["switchSession"]>[1],
-  ) {
-    if (!existsSync(sessionPath)) throw new Error(`Session file not found: ${sessionPath}`);
-    if (await this.cancelledBySessionReplacementHook({
-      type: "session_before_switch",
-      reason: "resume",
-      targetSessionFile: sessionPath,
-    })) {
-      return { cancelled: true };
-    }
-    const sessionId = SessionManager.open(sessionPath, undefined).getSessionId();
-    cacheSessionPath(sessionId, sessionPath);
-    return this.moveToReplacementSession(sessionId, sessionPath, options?.withSession);
+    return writeForkedSession(this.inner, targetLeafId);
   }
 
   private createExtensionCommandContextActions(): ExtensionCommandContextActionsLike {
+    const { newSession, fork, switchSession } = createSessionReplacementActions({
+      inner: this.inner,
+      cwd: this.cwd,
+      emit: (event) => this.emit(event as unknown as AgentEvent),
+      startSession: startRpcSession,
+    });
     return {
       waitForIdle: async () => {
         const agent = this.inner.agent as { waitForIdle?: () => Promise<void> };
         await agent.waitForIdle?.();
       },
-      newSession: (options) => this.newSessionForExtension(options),
-      fork: (entryId, options) => this.forkForExtension(entryId, options),
+      newSession,
+      fork,
       navigateTree: (targetId, options) => this.navigateTreeKeepingToolSelection(targetId, options ?? {}),
-      switchSession: (sessionPath, options) => this.switchSessionForExtension(sessionPath, options),
+      switchSession,
       reload: async () => {
         this.extensionStatuses.clear();
         this.resetExtensionWidgetsForReload();
@@ -2402,6 +2271,9 @@ export async function setRpcSessionTools(
       return setRpcSessionTools(sessionId, sessionFile, requestedToolNames);
     }
     const manager = SessionManager.open(sessionFile, undefined);
+    if (isChatWorkspacePath(manager.getCwd())) {
+      throw new Error("Chats have no tools. Open a project to change the tool preset.");
+    }
     if (readSubagentSessionResources(manager.getEntries() as unknown as SessionEntry[])) {
       throw new Error("Subagent tool selection is fixed by its profile");
     }
@@ -2413,6 +2285,9 @@ export async function setRpcSessionTools(
   }
 
   if (existing.isRunning()) throw new Error("Cannot change tools while the session is running");
+  if (existing.isChatWorkspace()) {
+    throw new Error("Chats have no tools. Open a project to change the tool preset.");
+  }
   if (readSubagentSessionResources(existing.inner.sessionManager.getEntries() as unknown as SessionEntry[])) {
     throw new Error("Subagent tool selection is fixed by its profile");
   }
@@ -2658,7 +2533,8 @@ export async function startRpcSession(
     );
   }
   const sessionCwd = sessionManager.getCwd();
-  const subagentResources = sessionFile
+  const chatWorkspace = isChatWorkspacePath(sessionCwd);
+  const subagentResources = sessionFile && !chatWorkspace
     ? readSubagentSessionResources(
         sessionManager.getEntries() as unknown as SessionEntry[],
       )
@@ -2666,7 +2542,9 @@ export async function startRpcSession(
   const persistedToolNames = subagentResources
     ? undefined
     : readSessionToolSelection(sessionManager.getEntries() as unknown as SessionEntry[]);
-  const selectedToolNames = subagentResources?.tools ?? persistedToolNames ?? requestedToolNames;
+  const selectedToolNames = chatWorkspace
+    ? []
+    : subagentResources?.tools ?? persistedToolNames ?? requestedToolNames;
   if (!subagentResources && persistedToolNames === undefined && requestedToolNames !== undefined) {
     appendSessionToolSelection(sessionManager, requestedToolNames);
   }
@@ -2741,7 +2619,13 @@ export async function startRpcSession(
             ...(usesExactSystemPrompt ? { extensionFactories: [exactSystemPromptExtension] } : {}),
           }
         : chatOnly
-          ? { ...CHAT_ONLY_RESOURCE_LOADER_OPTIONS, extensionFactories: [exactSystemPromptExtension] }
+          ? {
+              ...CHAT_ONLY_RESOURCE_LOADER_OPTIONS,
+              // A chat is deliberately model-only: no global, ancestor, or
+              // project instructions may leak into its prompt.
+              ...(chatWorkspace ? { noContextFiles: true } : {}),
+              extensionFactories: [exactSystemPromptExtension],
+            }
         : {
             extensionFactories: [
               ...(builtins?.extensions ?? []),
@@ -2823,14 +2707,17 @@ export async function startRpcSession(
     const exactSystemPrompt = subagentResources?.exactSystemPrompt !== undefined
       ? () => subagentResources.exactSystemPrompt!
       : chatOnly
-        ? subagentResources
-          ? () => subagentResources.appendSystemPrompt[0] ?? ""
-          : () => contextFilesSystemPrompt(inner.resourceLoader.getAgentsFiles().agentsFiles)
+        ? chatWorkspace
+          ? () => ""
+          : subagentResources
+            ? () => subagentResources.appendSystemPrompt[0] ?? ""
+            : () => contextFilesSystemPrompt(inner.resourceLoader.getAgentsFiles().agentsFiles)
         : undefined;
     exactSystemPromptRef.current = exactSystemPrompt;
     const wrapper = new AgentSessionWrapper(inner, {
       exactSystemPrompt,
       chatOnly,
+      chatWorkspace,
       onAgentRunComplete: (completedSessionId) => {
         void notifySessionComplete(completedSessionId).catch((error) => {
           console.error("[pi-web] failed to send completion push:", error instanceof Error ? error.message : error);

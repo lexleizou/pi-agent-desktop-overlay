@@ -17,7 +17,7 @@
 # Both are caught by the step that actually matters — apply the package to a
 # clean checkout of the recorded baseline and run tsc + tests:
 #
-#   git worktree add --detach /tmp/verify v0.7.1
+#   git worktree add --detach /tmp/verify v0.7.4
 #   cd /tmp/verify
 #   git apply <repo>/upstream-file-patches.diff
 #   cp -R <repo>/overlay/. .

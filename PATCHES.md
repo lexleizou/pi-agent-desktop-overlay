@@ -463,6 +463,34 @@ composer spacer 同步把聊天滚到底——刚发的问题直接被顶出视�
     **2864 pass / 0 fail**。同时修正了旧说明里的基线错误：`6fcd7d4` 是 **pi-web** 的提交
     （pi-web v0.10.0），在那个 SHA 上 checkout 得到的是 pi-web，补丁无法应用。
 
+## 上游同步记录：v0.7.1 → v0.7.4（2026-10-19，P0）
+
+- 基线改为 pi-agent-desktop tag `v0.7.4`（commit `2e0e3e7`），内置 pi SDK 1.2.0 → 1.3.0。
+- 方式：新 worktree `sync-074`（分支 `sync-0.7.4`）切到 v0.7.4，拷入 22 个 fork 新文件，`git apply -3` 重放 24 个上游文件补丁：20 个自动合并，4 个冲突手工解决。
+  - `ContextUsageRing.tsx`：保留上游"无用量时不渲染"，后接 fork 的常显数字；按钮用 fork 的横向布局 + 上游新高度 32。
+  - `useAgentSession.ts`：`session_info_changed` / `entry_appended` 已由上游移入 `hooks/useForkAgentEvents.ts`，只保留 fork 的 `pi_todos_update` 分支。
+  - `SettingsPanel.test.mjs`：上游把完成提示音开关移进聊天分组，加上 fork 的回复语言，期望改为 8 项选项 / 3 个开关。
+  - `ChatInput.tsx`：两处依赖数组取并集；上游把 `hashMenuOpen` 移入 `useSessionMentionPalette`，ghost text 的 `useGhostText()` 调用相应移到该 hook 之后（否则 TS2448）。
+- 坑：`git apply` 把 `app/api/agent/[id]/suggestions/route.ts` 的拷贝误落到了 `app/api/agent/[id]/route.ts`（`[id]` 被 shell 当成通配），已从 v0.7.4 还原并重新放到 `suggestions/`。
+- 验证（本机）：`tsc --noEmit` 通过；`npm test` 2997 pass / 0 fail；`npm run lint` 0 error、2 warning（`ChatInput.tsx` 的 `onSuggestionHandled` 未使用与 `suggestion` 依赖，v0.7.1 版已有，非本次引入）；`cargo fmt --check` 通过；`npm run build && npm run desktop:build` 生成 0.7.4 `.app` 与 DMG（末尾 updater 私钥报错与功能无关）。
+- 安装：旧版移到 `/Applications/.Pi Agent.app.bak-20261019-213956`，新版启动后 `/`、`/api/sessions`、`/api/plugins`、`/api/chat-workspace`（上游新功能）均 200，更新检查报告 0.7.4 已是最新。
+- 窗口修复 `fit_to_screen()` 已随本次打包；在外接 SW34Z（3440×1440）上窗口为 2056×1228，未超出屏幕。MacBook 单屏下的效果未实测。
+- GUI 手工检查未做：建议卡、ghost text、pi-todos 面板、用量 footer、回复语言设置需在 App 里点一遍。
+
+### 同步后决定不做的事
+
+- **不把 overlay 的新文件登记进 `scripts/fork-ownership.json`。** 该清单描述的是 `abcwyc/pi-agent-desktop` 与它合并的 `agegr/pi-web` 之间的边界；`overlay/` 里的文件在 pi-web 中根本不存在，登记进去不能避免任何真实冲突，反而让每次同步多出一个要重放的上游文件（第 25 个）。overlay 自己的边界由本仓的 `overlay/` 与 `upstream-file-patches.diff` 精确表达。
+- 上游 v0.7.4 已收录我们原先自有的 `hooks/useForkAgentEvents.ts`、`hooks/useSessionMentionPalette.ts`、`components/AppNoticeShelf.tsx`、`components/ComposerProjectChip.tsx`、`components/SessionMentionMenu.tsx`：这些现在归上游维护，**不得再放进 `overlay/`**，否则完整副本会覆盖上游的新版本。
+- 安装器的 `completeSimple` 断言**仍然有效**：它只针对 `server/app/api/agent/[id]/suggestions/route.js` 一个文件（实测该文件 `streamFunction` 1 次、`completeSimple` 0 次）。此前"断言失效"的说法针对的是对整个包做全局 grep，那是另一回事。
+
+### 发布包验证（2026-10-19）
+
+在干净检出 `2e0e3e7`（v0.7.4）上应用 `upstream-file-patches.diff` 再覆盖 `overlay/`：
+
+- `npx tsc --noEmit` → 0 错误
+- `npm test` → **2997 pass / 0 fail**（13 个 suite）
+- 与权威工作副本 `sync-074` 逐文件比对：所有源文件**逐字节一致**，差异只有构建产物（`next-env.d.ts`、`src-tauri/gen`、`src-tauri/resources/server`、`tsconfig.tsbuildinfo`）
+
 ## 复用方式
 
 1. `overlay/` 下的新文件按相对路径拷入目标 checkout；

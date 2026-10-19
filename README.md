@@ -71,10 +71,14 @@ install steps below are that verification.
 
 ## Install
 
-The overlay targets pi-agent-desktop **v0.7.1** — tag `v0.7.1`, commit
-`9519ce4c1c2e504ba1d0aaaddcfed6ea8e49d0b3` (verified against the upstream repository with
-`git ls-remote --tags origin v0.7.1`). Pin the commit, not just the tag: the overlay was
+The overlay targets pi-agent-desktop **v0.7.4** — tag `v0.7.4`, commit
+`2e0e3e714866f1b3772c65b34b51cac530fb5316` (verified against the upstream repository with
+`git ls-remote --tags origin v0.7.4`). Pin the commit, not just the tag: the overlay was
 applied and tested at exactly this tree.
+
+> Earlier revisions targeted `v0.7.1` (`9519ce4c`). The move to `v0.7.4` is not a plain
+> rebase: upstream adopted several files this overlay had added, and moved fork layers into
+> their own files. See the sync record in `PATCHES.md` before diffing against `v0.7.1`.
 
 > The `6fcd7d4` commit quoted in earlier revisions of this README was wrong. It is the *pi-web*
 > baseline this fork merged (pi-web v0.10.0, per `scripts/release-component-pins.json`) — a
@@ -85,7 +89,7 @@ applied and tested at exactly this tree.
 ```bash
 git clone https://github.com/abcwyc/pi-agent-desktop.git
 cd pi-agent-desktop
-git checkout 9519ce4c1c2e504ba1d0aaaddcfed6ea8e49d0b3   # v0.7.1, the verified baseline
+git checkout 2e0e3e714866f1b3772c65b34b51cac530fb5316   # v0.7.4, the verified baseline
 
 # 1. Apply the block-level edits to upstream files
 git apply /path/to/upstream-file-patches.diff
@@ -96,12 +100,15 @@ cp -R /path/to/overlay/. .
 # 3. Verify
 npm install
 npx tsc --noEmit
-npm test                    # expect 2872 passing
+npm test                    # expect 2997 passing
 ```
 
 The last two steps are the ones that matter: if `tsc` and `npm test` both come back clean,
-the overlay applied correctly. Both were re-run on a clean worktree of `v0.7.1` for the
-current revision — `tsc --noEmit` clean, **2872 tests passing, 0 failing**.
+the overlay applied correctly. Both were re-run on a clean worktree of `v0.7.4` for the
+current revision — `tsc --noEmit` clean, **2997 tests passing, 0 failing**. Applying the
+package to that checkout also reproduces the working tree byte for byte across every source
+file; the only files that differ are build outputs (`next-env.d.ts`, `src-tauri/gen`,
+`src-tauri/resources/server`, `tsconfig.tsbuildinfo`).
 
 ### Building the desktop app
 
@@ -133,10 +140,24 @@ This overlay touches two kinds of files, and they need different handling:
 `PATCHES.md` lists the exact set of both, plus the upstream files that should be registered as
 fork-owned in `scripts/fork-ownership.json`.
 
+One boundary decision is worth recording here, because the omission looks like an oversight:
+**this overlay deliberately does not register its own new files in `scripts/fork-ownership.json`.**
+That manifest describes the boundary between `abcwyc/pi-agent-desktop` and the `agegr/pi-web`
+tree it merges — the files in `overlay/` do not exist in `pi-web` at all, so listing them would
+not prevent a single real conflict. Editing the manifest would instead add a twenty-fifth
+upstream-owned file to re-merge on every release, for no benefit. The overlay's own boundary is
+this repository, and `overlay/` plus `upstream-file-patches.diff` already state it exactly.
+
 ## Changelog
 
 Installment numbers match [PATCHES.md](PATCHES.md), which carries the reasoning, the trade-offs and
 the measurements behind each one.
+
+### 2026-10-19
+
+| # | Change |
+|---|---|
+| 18 | **Rebased onto pi-agent-desktop v0.7.4** (`2e0e3e7`), which also moves the bundled pi SDK from 1.2.0 to 1.3.0. Upstream restructured the same regions this overlay edits, so four of the twenty-four patched files needed hand resolution; upstream also adopted five files the overlay used to add (`useForkAgentEvents`, `useSessionMentionPalette`, `AppNoticeShelf`, `ComposerProjectChip`, `SessionMentionMenu`), and those must no longer ship as overlay copies. No behaviour changed — this is a port, and the verification is the point: on a clean v0.7.4 checkout the package typechecks and passes **2997 tests, 0 failing**, and reproduces the working tree byte for byte across every source file. |
 
 ### 2026-10-18
 
