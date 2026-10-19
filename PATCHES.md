@@ -298,6 +298,19 @@ composer spacer 同步把聊天滚到底——刚发的问题直接被顶出视�
     `用一句话说明电容是什么` —— 验证「正文无建议也保留」。
 - `npx tsc --noEmit` 通过；`npm test` → **2881 pass / 0 fail**。
 
+第十七期补充二（同日，收尾清理）：
+- 建议卡的**死代码**已清除：`cds-overlay.css` 82 行、`bui-overlay.css` 163 行（外壳、表头、行、
+  hover、reduced-motion 里的两行）。第一次清理时 range 取错，顺手删掉了任务面板与 ghost hint 的
+  样式——已从仓库 HEAD 还原后按小节边界重做，并逐个校验 `bui-progress-rail` / `bui-task-row` /
+  `ghost-text-hint` / `pinned-prompt` / `tool-call-summary` / `ctx-session-metrics` 仍在。
+- **安装器断言的教训**：第十六期那条「卡片必须是 flow 布局」的断言在第十七期（卡片整体删除）后
+  变成永假，install12 因此在校验阶段中止（未动任何文件）。已改为「`pinned-prompt` 在 且
+  `suggestion-chip` 不在」。教训：**删除一个 UI 元素时，要同时更新那些以它为断言对象的安装校验**。
+- 实测安装版（新 App 服务，38472 端口）：`POST /suggestions` 返回 **1 条**；打包产物中
+  `suggestion-chip` **0 处**、其余功能标记齐全。
+- 环境提醒：替换运行中的 App 会留下**孤儿服务进程**（本次旧进程仍占着 38471，会话挂在其中，
+  导致其 cwd 指向已搬走的 bundle、`getcwd` 失败）。需要完全退出再重开，会话才会落到新服务。
+
 第十七期补充（同日，Lex 反馈「Tab 选择后删除内容，原来的建议不再显示灰字」）：
 - 现象：Tab 采纳建议后再把内容删掉，灰字建议不再出现。根因是我把「采纳」和「销毁」混为一谈——
   Tab 分支里调了 `onSuggestionHandled`（会 `setSuggestion(null)` + 清空引擎侧文本），输入框的
