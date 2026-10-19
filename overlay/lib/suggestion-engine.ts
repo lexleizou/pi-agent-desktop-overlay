@@ -30,7 +30,7 @@ import {
 
 const SUGGESTION_TIMEOUT_MS = 30_000;
 const SUGGESTION_MAX_TOKENS = 220;
-const MAX_SUGGESTIONS = 3;
+const MAX_SUGGESTIONS = 1;
 const MIN_SUGGESTION_LENGTH = 2;
 const MAX_SUGGESTION_LENGTH = 120; // characters, CJK-aware via Array.from
 
@@ -39,7 +39,7 @@ const MAX_SUGGESTION_LENGTH = 120; // characters, CJK-aware via Array.from
 // traffic is noise for this purpose.
 const USER_CHARS = 600;
 const ASSISTANT_CHARS = 240;
-const LAST_ASSISTANT_CHARS = 500;
+const LAST_ASSISTANT_CHARS = 1_200;
 const TRANSCRIPT_CHARS = 5_000;
 
 const ELISION = "[…]";
@@ -50,14 +50,24 @@ const SUGGESTION_SYSTEM_PROMPT = [
   "You never answer the user's question yourself; you suggest turns.",
 ].join(" ");
 
-const SUGGESTION_PROMPT = `Based on the conversation above, write the three next steps the user is most likely to want to take in this coding-agent session.
+const SUGGESTION_PROMPT = `Based on the conversation above, write the ONE next step the user is most likely to want to take in this coding-agent session.
+
+The last assistant reply is included in full. If it already proposes a next step
+(for example it ends by asking whether to install, deploy, test or continue),
+that proposal is the best candidate: refine it into one concrete instruction
+instead of inventing a different direction. If it proposes nothing, choose the
+single most useful next step yourself.
 
 Requirements:
-- Match the primary language the user used in this session.
-- Each suggestion is an instruction the user could send as their next message (e.g. "run the tests now", "把方案写成文档"), not a question the assistant would answer.
-- Each suggestion is one line, at most 100 characters.
-- Do not repeat a suggestion already covered well by the last assistant reply.
-- Output strict JSON: {"suggestions": ["...", "...", "..."]} — an object with a "suggestions" key mapping to a plain JSON array of 3 short strings. No markdown, no explanation.
+- Match the primary language of the user's messages.
+- The suggestion is an instruction the user could send as their next message
+  (e.g. "run the tests now", "把方案写成文档"), never a question, never a summary.
+- One line, at most 100 characters, no trailing punctuation.
+- Concrete and actionable: name the file, command, branch or target when the
+  conversation gives one. Do not restate what the reply already finished.
+- Output strict JSON: {"suggestions": ["..."]} — an object with a "suggestions"
+  key mapping to a plain JSON array holding exactly one string. No markdown,
+  no explanation.
 
 JSON:`;
 

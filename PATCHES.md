@@ -269,40 +269,51 @@ composer spacer 同步把聊天滚到底——刚发的问题直接被顶出视�
   - 最后一条用户消息仍在视口内，置顶条未触发（符合预期）。
 - `npx tsc --noEmit` 通过；`npm test` → **2872 pass / 0 fail**。
 
-第十七期（2026-10-18）：**每个网页链接前面加站点图标（favicon），对齐 Codex/ChatGPT 的观感。**
+第十七期（2026-10-18）：**建议合成一条，移进输入框显示为灰字，Tab 采纳。**
 
-- 来源：Lex 看到 Codex 里链接前的圆形小 logo，问 Pi 能不能也这样。
-- **图标是 `<a>` 的兄弟节点，不是它的子节点**——这一点是刻意的，有两个后果：
-  1. 上游 anchor 的标记一字不改（`<a href=… target="_blank" rel="noopener noreferrer">text</a>`），
-     上游那批匹配 `>text</a>` 的链接测试（`components/MarkdownBody.test.mjs` 里近十条）原样通过。
-     靠改写上游测试期望来做这件事，等于每次上游发版都免费附送一次冲突。
-  2. 图标不属于链接的可点/可复制文本：选中链接复制得到的是文字，不是图片。
-- **来源与降级**：两个公开 favicon 端点按序尝试——DuckDuckGo 的 icon 服务（返回站点真图标、尺寸
-  合适）优先，Google `s2`（与 ChatGPT 同一调用形状）兜底，两个都失败就整块移除，不留空白。都是
-  普通 `<img>` 的 https 请求，桌面版 CSP（`img-src 'self' data: blob: http://127.0.0.1:* https:`）
-  本来就允许；不经 app 代理，浏览器缓存天然按 host 去重——每个 host 每会话一次请求，而不是每个
-  链接一次。代价要说清楚：请求会把域名带给第三方，这与 ChatGPT 为同一效果做的交易相同。
-- **只在 http(s) 链接上出现**：`mailto:`、`tel:`、`#锚点`、相对路径、`file://`、`vscode://` 都解析
-  不出 host，渲染为空，因此应用内打开本地文件的那类链接观感与改动前完全一致；`localhost` / 裸 IP /
-  IPv6 也跳过（这些没有有意义的图标）。
-- **尺寸随字号**：span 用 `1em`，所以 `h2` 里的链接图标自动比正文里的大；标题里按 `0.85em` 收一点，
-  不把行高顶开。
-- **暗色主题**：多数 favicon 是为白底画的，GitHub 的猫在深色背景上基本隐形。`html.dark` 下给图标加
-  一层 90% 白底 + 3px 圆角衬底，一次解决所有图标——不反色、不给本来能看清的图标上色，与 Codex/
-  ChatGPT 在深色下的处理一致。
-- 实测（headless Chrome 渲染真实标记 + 真 favicon，浅色/暗色各一张）：GitHub 猫、beautifului.dev、
-  react-markdown、anthropic 四个图标均正常加载并贴文字基线；本地文件链接 `components/MarkdownBody.tsx`
-  确认不带图标；两份截图留在 `~/AgentScratch/20261018-link-favicon/`。
-- 新增 `components/LinkFavicon.test.mjs`（9 条）：host 解析（协议白名单、IDN 转 punycode、
-  localhost/裸 IP/IPv6 跳过）、源顺序、渲染属性（lazy / async / no-referrer / aria-hidden）、
-  非网页 href 渲染为空、**上游 anchor 标记不变且图标在其同级前面**、自动链接有图标而本地文件链接没有。
-- `npx tsc --noEmit` 通过；`npm test` → **2881 pass / 0 fail**（2872 + 新增 9）。另外在干净
-  `v0.7.1` worktree 上重放（`git apply` diff + `cp -R overlay/. .`）后同样 tsc 干净、2881 通过。
-- 顺带修 `scripts/sync-overlay.sh`：它假定 `overlay/` 与脚本同层（早期解包目录的布局），在发布仓库
-  里（`overlay/` 在仓库根、脚本在 `scripts/`）会直接报 `no overlay/ next to this script`。现在探测不到
-  `$HERE/overlay` 时自动上溯一层，两种布局都能从各自根目录直接跑。
+- 来源：Lex 指出正文里的「下一步建议」和卡片里的 Follow-ups 是两套、内容还不一致（截图里正文建议
+  「先小规模验证」、卡片建议「合并分支/补 CHANGELOG」），要求：合并成一套、去掉重复、Follow-up
+  精简成一条、放进输入框且默认灰色、Tab 键完成输入、并且**正文没给建议时也要保留**。
+- 两套为什么不一致（诊断）：正文建议由**主对话模型**在回复里顺口写出；Follow-ups 是回合结束后
+  600ms 的**另一次独立调用**，预算只有 maxTokens 220、提示词要求「严格 JSON、每条 ≤100 字符」，
+  且看到的是被裁剪的对话（用户轮 600 字符、助手中间轮 240、最后一轮 500、总 5000）。提示词里还有
+  一条「不要重复上一条回复已覆盖的建议」，于是它被推着**另起方向**——这就是两边跑偏的原因。
+- 改法（`lib/suggestion-engine.ts`）：
+  - 提示词改为「只写**一条**」；并明确「若最后一条回复已提出下一步（比如结尾问是否安装/部署/测试），
+    就把那个提议**细化成一条具体指令**，不要另起方向；若没有提议，再自己选最有价值的一步」。
+  - `MAX_SUGGESTIONS` 3 → **1**；最后一轮回复的可见预算 500 → **1200** 字符，让它能读到正文末尾
+    那句提议。语言仍按用户主语言。
+- 呈现（`components/SuggestionChips.tsx` 重写 + `ChatInput`）：
+  - 卡片**整体去掉**，组件改为只持有文本、通过 `onChange` 上抛，自身渲染 `null`。
+  - 输入框为空且空闲时，把建议放进 **placeholder 槽位**显示为灰字——不遮挡正文、不占布局、
+    不需要额外面板；一打字就消失。
+  - **Tab** 把灰字变成真实草稿（写入 value、光标置尾、placeholder 恢复），Esc 丢弃。
+  - 采纳过的建议记进 `acceptedSuggestionRef`，引擎若再给出同一条会被跳过，避免「刚采纳又弹回来」。
+  - **正文没给建议时照常出**：抓取逻辑本来就在每次回合结束时无条件触发，与正文内容无关。
+- 实测（dev 实例 + 真实会话）：
+  - 引擎：`POST /suggestions` 返回 `{"suggestions":["只回复：OK"]}` —— 只有一条。
+  - UI：回合结束后 `cardElements = 0`、输入框 `value=""`、`placeholder` 变成建议文本；
+    按 Tab 后 `value="只回复：OK"`、光标在末尾、placeholder 恢复为常规提示。
+  - 另一次正文只回了「OK」（**没有**下一步建议）的回合，输入框仍拿到建议
+    `用一句话说明电容是什么` —— 验证「正文无建议也保留」。
+- `npx tsc --noEmit` 通过；`npm test` → **2881 pass / 0 fail**。
 
-日期：2026-10-16（六期、七期为 2026-10-17 追加，八、九期为 2026-10-17 追加，十至十六期为 2026-10-17 追加，十七期为 2026-10-18 追加）
+第十七期补充（同日，Lex 反馈「Tab 选择后删除内容，原来的建议不再显示灰字」）：
+- 现象：Tab 采纳建议后再把内容删掉，灰字建议不再出现。根因是我把「采纳」和「销毁」混为一谈——
+  Tab 分支里调了 `onSuggestionHandled`（会 `setSuggestion(null)` + 清空引擎侧文本），输入框的
+  `onChange` 里也在**只要有内容就清**。两者都会让建议**被消费掉**。
+- 改法：**采纳不等于消费**。Tab 只把文本写进草稿、光标置尾，**不动建议本身**；输入时也不再清除，
+  只是「有内容时不显示 placeholder」；因此清空草稿后灰字自然回来。只有 **Esc** 才真正丢弃。
+  同时删掉了「刚采纳就跳过同一条」的 `acceptedSuggestionRef` 守卫（那是为了掩盖销毁行为而加的，
+  现在不需要了），新一轮的抓取直接替换旧建议。
+- 实测（真实按键，不是脚本改值）：
+  - 回合结束：`value=""`、`placeholder="用一句话说明电容是什么"`。
+  - Tab：`value="用一句话说明电容是什么"`、光标在末尾。
+  - 清空：`value=""`、`placeholder` 回到同一条建议 —— 恢复。
+  - 真实键入「测试」：`value="测试"`，灰字隐藏；按两次 Backspace 删空后灰字**重新出现**。
+- `npx tsc --noEmit` 通过；`npm test` → **2881 pass / 0 fail**。
+
+日期：2026-10-16（六期、七期为 2026-10-17 追加，八、九期为 2026-10-17 追加）
 基线：abcwyc/pi-agent-desktop **v0.7.1**（tag `v0.7.1` = `9519ce4c1c2e504ba1d0aaaddcfed6ea8e49d0b3`；上游 pi-web v0.10.0 合并至
 `6fcd7d4`，该 SHA 是 pi-web 的提交，不是 pi-agent-desktop 的）
 
@@ -329,8 +340,6 @@ composer spacer 同步把聊天滚到底——刚发的问题直接被顶出视�
 | `lib/usage-footer.ts` | 【五期】usage 行纯格式化：K/M 紧凑数字、耗时（s / m s / h m）、cache hit 阈值（≥80 good、≥50 fair、其余 poor）、亚分级成本保留非零位 |
 | `lib/usage-footer.test.mjs` | 【五期】6 个单测（含截图那一行的完整复现） |
 | `components/UsageFooter.tsx` | 【五期】按段渲染 usage 行，颜色全部走 CSS class，不写死 inline 色值 |
-| `components/LinkFavicon.tsx` | 【十七期】网页链接前的站点图标：`faviconHost()`（协议白名单、跳过 localhost/裸 IP/IPv6）、`faviconSources()`（DuckDuckGo → Google s2）、`<img>` 逐源降级、全失败则不渲染；作为 `<a>` 的兄弟节点渲染 |
-| `components/LinkFavicon.test.mjs` | 【十七期】9 条单测：host 解析、源顺序、渲染属性、非网页 href 为空、上游 anchor 不变且图标同级前置、本地文件链接无图标 |
 
 ### 上游（fork 拥有文件的）受控修改
 
@@ -349,7 +358,6 @@ composer spacer 同步把聊天滚到底——刚发的问题直接被顶出视�
 | `hooks/useAgentSession.ts` | 【五期】`AgentStateResponse.piTodos` 可选字段 + `piTodos` state（切换会话时重置，get_state / `pi_todos_update` 两路更新）并随 hook 返回 |
 | `components/ChatWindow.tsx` | 【五期】`aboveEditorWidgets` 过滤掉 `pi-todos` widget（避免重复显示），并在 ExtensionCustomPanel 之后挂载 `<PiTodosPanel />`。【八期】`<PiTodosPanel>` 增加 `busy={sessionBusy}`，仅驱动忙碌时的扫光进度条与 `Working · Ns` 计时。【九期】锚点预留高度改按可见高度（减掉 composer 高度）计算并观察 composer；`<PiTodosPanel>` 再传 `anchored={promptAnchorActive}` |
 | `components/MessageView.tsx` | 【五期】usage 行改用 `<UsageFooter />`（仅非流式时显示）；旧 `formatUsage` 保留并加 eslint-disable 注释，减少与上游的行级冲突 |
-| `components/MarkdownBody.tsx` | 【十七期】① +1 行 import `LinkFavicon`；② 外部链接分支里、`<a>` 之前插入 `<LinkFavicon href={href} />`（两处块状新增，未改写任何上游行；本地文件链接分支不动） |
 
 ## 与上游同步的兼容性（fork-ownership 机制核对）
 
@@ -444,10 +452,8 @@ composer spacer 同步把聊天滚到底——刚发的问题直接被顶出视�
 
 ## 复用方式
 
-1. 应用 `upstream-file-patches.diff`（全部受控修改的上游文件，`git diff` 生成）；
-2. `overlay/` 下的新文件按相对路径拷入目标 checkout。**顺序不能颠倒**：`overlay/` 里带的是
-   若干上游文件的完整副本，先拷再打补丁会把补丁要改的内容盖掉，而且这种失误只有在
-   `tsc` / `npm test` 里才会暴露；
+1. `overlay/` 下的新文件按相对路径拷入目标 checkout；
+2. 应用 `upstream-file-patches.diff`（全部受控修改的上游文件，`git diff` 生成）；
 3. 下次上游 sync 后，把上面列出的新路径登记进 `scripts/fork-ownership.json` 的 `forkOwnedPaths`。
 
 ## 后续（候选）

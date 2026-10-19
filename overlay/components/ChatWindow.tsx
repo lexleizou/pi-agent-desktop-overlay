@@ -331,6 +331,8 @@ export function ChatWindow({ session, searchTarget, onSearchTargetHandled, initi
   // present inside an idle composer, drop them the moment the agent runs
   // again or the user types. All logic lives in the overlay component.
   const suggestionChipsRef = useRef<SuggestionChipsHandle | null>(null);
+  // The single follow-up suggestion, rendered as grey text inside the composer.
+  const [suggestion, setSuggestion] = useState<string | null>(null);
   // Fetch only after a busy → idle transition on this mount: reopening an
   // already-settled session must not re-ask the model for suggestions.
   const sawBusyRef = useRef(false);
@@ -353,7 +355,9 @@ export function ChatWindow({ session, searchTarget, onSearchTargetHandled, initi
           const items = Array.isArray(payload?.suggestions)
             ? payload.suggestions.filter((item): item is string => typeof item === "string")
             : null;
-          if (items && items.length > 0) suggestionChipsRef.current?.present(items);
+          // One line per turn. A new turn replaces the previous proposal.
+          const next = items?.[0]?.trim();
+          if (next) suggestionChipsRef.current?.present([next]);
         })
         .catch(() => {});
     }, 600);
@@ -1187,6 +1191,13 @@ export function ChatWindow({ session, searchTarget, onSearchTargetHandled, initi
   const chatInputElement = (
     <ChatInput
       ref={chatInputRef}
+      suggestion={sessionBusy ? null : suggestion}
+      // Explicit dismissal only (Escape in the composer). Accepting with Tab and
+      // typing both keep the suggestion, so clearing the draft shows it again.
+      onSuggestionHandled={() => {
+        setSuggestion(null);
+        suggestionChipsRef.current?.clear();
+      }}
       onSend={handleSend}
       onAbort={handleAbort}
       onSteer={agentRunning ? handleSteer : undefined}
@@ -1764,11 +1775,9 @@ export function ChatWindow({ session, searchTarget, onSearchTargetHandled, initi
             </div>
           </div>
         )}
-        <SuggestionChips
-          handleRef={suggestionChipsRef}
-          onInsert={(text) => chatInputRef?.current?.insertIfEmpty(text)}
-          onFocusInput={() => chatInputRef?.current?.focus()}
-        />
+        {/* Renders nothing: the suggestion itself lives in the composer as grey
+            text (see the `suggestion` prop on ChatInput). */}
+        <SuggestionChips handleRef={suggestionChipsRef} onChange={setSuggestion} />
         {chatInputElement}
         {(belowEditorWidgets.length > 0 || hasExtensionStatus) && (
           <div className={`extension-status-shelf${belowEditorWidgets.length > 0 ? " has-widgets" : ""}${hasExtensionStatus ? " has-status" : ""}`}>
